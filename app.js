@@ -39,6 +39,8 @@ const elements = {
 const map = L.map("map", {
   zoomControl: false,
   scrollWheelZoom: true,
+  touchZoom: "center",
+  bounceAtZoomLimits: false,
   attributionControl: true,
 }).setView(LONDON_CENTER, 11);
 
@@ -296,5 +298,17 @@ elements.emptyReset.addEventListener("click", resetFilters);
 elements.refreshButton.addEventListener("click", loadEvents);
 elements.mobileListButton.addEventListener("click", openMobileRail);
 elements.closeRail.addEventListener("click", closeMobileRail);
+
+const mapPanel = document.querySelector(".map-panel");
+const mapElement = document.querySelector("#map");
+
+function updatePinchState(event) {
+  mapPanel.classList.toggle("is-pinching", event.touches.length > 1);
+}
+
+mapElement.addEventListener("touchstart", updatePinchState, { passive: true });
+mapElement.addEventListener("touchmove", updatePinchState, { passive: true });
+mapElement.addEventListener("touchend", updatePinchState, { passive: true });
+mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-pinching"), { passive: true });
 
 loadEvents();

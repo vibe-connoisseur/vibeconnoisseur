@@ -61,19 +61,30 @@ a:focus-visible {
 }
 
 .wordmark {
-  width: max-content;
+  width: 62px;
+  height: 62px;
   color: var(--paper);
   text-decoration: none;
-  font-family: var(--display);
-  font-size: 15px;
-  line-height: 0.84;
-  letter-spacing: -0.04em;
-  display: flex;
-  flex-direction: column;
-  transform: rotate(-2deg);
+  display: block;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(236, 233, 221, .2), 0 8px 24px rgba(0, 0, 0, .3);
+  transform: rotate(-3deg);
+  transition: transform 220ms ease, box-shadow 220ms ease;
 }
 
-.wordmark span:last-child { color: var(--acid); }
+.wordmark:hover {
+  transform: rotate(0deg) scale(1.04);
+  box-shadow: 0 0 0 2px var(--acid), 0 10px 28px rgba(0, 0, 0, .38);
+}
+
+.wordmark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
 
 .header-meta {
   display: flex;
@@ -313,6 +324,45 @@ select {
   backdrop-filter: blur(8px);
 }
 
+.gesture-hint {
+  position: absolute;
+  z-index: 520;
+  top: 50%;
+  left: 50%;
+  display: none;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  color: var(--paper);
+  background: rgba(17, 18, 15, .88);
+  border: 1px solid rgba(215, 242, 90, .45);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(.92);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.gesture-hint svg {
+  width: 22px;
+  fill: none;
+  stroke: var(--acid);
+  stroke-width: 1.6;
+  stroke-linecap: square;
+}
+
+.map-panel.is-pinching {
+  border-color: rgba(215, 242, 90, .65);
+}
+
+.map-panel.is-pinching .gesture-hint {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
 .key-item {
   display: flex;
   align-items: center;
@@ -531,6 +581,7 @@ footer {
 @media (max-width: 760px) {
   .app-shell { padding: 0 15px; }
   .site-header { min-height: 72px; }
+  .wordmark { width: 52px; height: 52px; }
   .refresh-button span { display: none; }
   .hero { min-height: 310px; display: block; padding-top: 55px; }
   .edition { top: 24px; }
@@ -582,6 +633,20 @@ footer {
   .map-key { left: 11px; right: 11px; bottom: 77px; max-width: none; }
   footer { display: block; line-height: 1.8; }
   footer p { margin: 3px 0; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .gesture-hint {
+    display: flex;
+    animation: gestureIntro 3.6s 1.2s both;
+  }
+
+  .map-panel.is-pinching .gesture-hint { animation: none; }
+}
+
+@keyframes gestureIntro {
+  0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(.92); }
+  18%, 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
