@@ -3,99 +3,61 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="A live, curated map of exhibitions, music, food and culture across London."
-    />
-    <title>Vibe Connoisseur — London, currently</title>
+    <meta name="theme-color" content="#111310" />
+    <meta name="description" content="A live map of events worth crossing London for." />
+    <title>Vibe Connoisseur — London after dark</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;600;700;800&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
-    />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="masthead">
+    <main class="map-page">
+      <div id="map" aria-label="Dark map of London events"></div>
+
+      <header class="topbar">
         <a class="wordmark" href="#" aria-label="Vibe Connoisseur home">
-          <span>VIBE</span>
-          <span>CONNOISSEUR</span>
+          <span>VIBE</span><span>CONNOISSEUR</span>
         </a>
-        <p class="masthead-note">A living index of good reasons to leave the house.</p>
-        <button class="refresh-button" id="refreshButton" type="button">
-          <span class="refresh-icon" aria-hidden="true">↻</span>
-          Refresh sheet
+        <p class="edition">London field notes <span>/</span> Live from the sheet</p>
+        <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh events">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" /></svg>
         </button>
       </header>
 
-      <main>
-        <section class="intro" aria-labelledby="pageTitle">
-          <div>
-            <p class="eyebrow">London / <span id="currentDate">Right now</span></p>
-            <h1 id="pageTitle">London,<br /><em>currently.</em></h1>
-          </div>
-          <div class="intro-copy">
-            <p>Independent picks for art, sound, food, film and everything between.</p>
-            <div class="sync-status" id="syncStatus" role="status" aria-live="polite">
-              <span class="status-dot"></span>
-              Connecting to the spreadsheet
-            </div>
-          </div>
-        </section>
+      <section class="intro-panel" aria-labelledby="pageTitle">
+        <p class="eyebrow"><span class="live-dot"></span> London, currently</p>
+        <h1 id="pageTitle">Good reasons<br />to go <em>out.</em></h1>
+        <p class="intro-copy">A small, live index of parties, gatherings and culture happening across the city.</p>
+        <div class="status-row">
+          <p id="syncStatus" role="status" aria-live="polite">Reading the guest list...</p>
+          <p><span id="resultCount">0</span> plotted</p>
+        </div>
+      </section>
 
-        <section class="controls" aria-label="Event filters">
-          <div class="filter-group" id="dateFilters">
-            <button class="filter active" data-date="all" type="button">All dates</button>
-            <button class="filter" data-date="today" type="button">Today</button>
-            <button class="filter" data-date="weekend" type="button">This weekend</button>
-          </div>
-          <div class="filter-group categories" id="categoryFilters" aria-label="Categories"></div>
-        </section>
+      <nav class="filter-bar" id="categoryFilters" aria-label="Filter events by type"></nav>
 
-        <section class="map-layout">
-          <div class="map-frame">
-            <div id="map" aria-label="Map of London events"></div>
-            <div class="map-label">51.5072° N / 0.1276° W</div>
-            <button class="list-toggle" id="listToggle" type="button" aria-expanded="false">
-              View list <span id="resultCount">0</span>
-            </button>
-          </div>
+      <section class="event-rail" aria-label="Events">
+        <div class="rail-heading">
+          <p>On the map</p>
+          <p id="lastUpdated">Syncing now</p>
+        </div>
+        <div class="event-list" id="eventList"></div>
+        <div class="empty-state" id="emptyState" hidden>
+          <p>No pins here yet.</p>
+          <button type="button" id="resetFilters">Show everything</button>
+        </div>
+      </section>
 
-          <aside class="event-drawer" id="eventDrawer" aria-label="Event list">
-            <div class="drawer-header">
-              <p>On the map</p>
-              <button id="closeDrawer" type="button" aria-label="Close event list">×</button>
-            </div>
-            <div class="event-list" id="eventList"></div>
-          </aside>
-        </section>
+      <button class="mobile-list-toggle" id="listToggle" type="button" aria-expanded="false">
+        <span>Explore the list</span><span id="mobileResultCount">0</span>
+      </button>
 
-        <section class="empty-state" id="emptyState" hidden>
-          <span>Nothing here yet</span>
-          <h2>The map is waiting for its next good idea.</h2>
-          <p>Try another filter, or add a published event to the connected Google Sheet.</p>
-        </section>
-      </main>
+      <div class="map-coordinate" aria-hidden="true">51.5072° N<br />0.1276° W</div>
+    </main>
 
-      <footer>
-        <p>Curated in London. Updated by spreadsheet.</p>
-        <p id="lastUpdated">Awaiting first sync</p>
-      </footer>
-    </div>
-
-    <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""
-    ></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="app.js" defer></script>
   </body>
 </html>

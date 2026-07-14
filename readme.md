@@ -1,18 +1,18 @@
 # Vibe Connoisseur
 
-A responsive London events map powered by a published Google Sheet and a Netlify Function. Curators update the spreadsheet; the site refreshes automatically without a rebuild or code change.
+A dark-mode London events map powered by a published Google Sheet and a Netlify Function. Curators update the spreadsheet; the site refreshes automatically without a rebuild or code change.
 
 ## Connect a Google Sheet
 
-Create a sheet with these headers in the first row:
+The connected sheet currently uses these headers:
 
 ```text
-id,title,category,date,start_time,end_time,venue,address,latitude,longitude,description,ticket_url,image_url,price,featured,published
+Title,Type of Event,Location,Age Range,Tickets From,Ticket Link
 ```
 
-Required fields are `title`, `date`, `venue`, `latitude`, and `longitude`. Use `YYYY-MM-DD` for dates and 24-hour `HH:MM` times. Set `published` to `TRUE` to show an event. If the `published` cell is empty, the event is also shown; set it to `FALSE` to hide the row.
+`Title` and `Location` are required. Put a UK postcode in the location (for example, `Venue Name, SW9 6LH`) so the server can place the event accurately on the map. Existing sheets with latitude and longitude columns remain supported.
 
-Suggested categories are `Art`, `Music`, `Food`, `Film`, and `Culture`. New category names still work and receive the fallback marker color.
+Event types become map filters automatically, so new categories need no code changes.
 
 In Google Sheets:
 
