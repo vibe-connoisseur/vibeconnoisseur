@@ -1,19 +1,16 @@
+const DEFAULT_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT53066usuQvIHnL08j_9XTFmW94Nkj4SRDQHS_OdQAsmpK9uMcEvGuX6l-Ji9m4ztZcEXvMc0LHEHW/pub?gid=909209203&single=true&output=csv";
+
 type SheetEvent = {
   id: string;
   title: string;
   category: string;
-  date: string;
-  startTime: string;
-  endTime: string;
   venue: string;
-  address: string;
+  location: string;
+  ageRange: string;
+  price: string;
+  ticketUrl: string;
   latitude: number;
   longitude: number;
-  description: string;
-  ticketUrl: string;
-  imageUrl: string;
-  price: string;
-  featured: boolean;
 };
 
 function parseCsv(csv: string): string[][] {
@@ -50,48 +47,58 @@ function parseCsv(csv: string): string[][] {
 }
 
 function normalizedHeader(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/(^_|_$)/g, "");
 }
 
-function isTruthy(value = ""): boolean {
-  return ["true", "yes", "1", "y"].includes(value.trim().toLowerCase());
+function eventId(title: string, index: number): string {
+  return `${title}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-function toEvent(record: Record<string, string>, index: number): SheetEvent | null {
+function splitLocation(value: string): { venue: string; postcode: string } {
+  const postcode = value.match(/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i)?.[0] || "";
+  const venue = value.replace(new RegExp(`,?\\s*${postcode}$`, "i"), "").trim();
+  return { venue: venue || value, postcode: postcode.toUpperCase() };
+}
+
+async function geocodePostcode(postcode: string): Promise<{ latitude: number; longitude: number } | null> {
+  if (!postcode) return null;
+  const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`);
+  if (!response.ok) return null;
+  const data = await response.json();
+  const latitude = Number(data?.result?.latitude);
+  const longitude = Number(data?.result?.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
+}
+
+async function toEvent(record: Record<string, string>, index: number): Promise<SheetEvent | null> {
+  const title = record.title || record.event || record.name;
+  const location = record.location || record.address || record.venue;
+  if (!title || !location) return null;
+
+  const { venue, postcode } = splitLocation(location);
   const latitude = Number(record.latitude);
   const longitude = Number(record.longitude);
-  if (!record.title || !record.date || !record.venue || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  if (record.published && !isTruthy(record.published)) return null;
+  const coordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? { latitude, longitude }
+    : await geocodePostcode(postcode);
+  if (!coordinates) return null;
 
   return {
-    id: record.id || `${record.date}-${record.title}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-    title: record.title,
-    category: record.category || "Other",
-    date: record.date,
-    startTime: record.start_time || "",
-    endTime: record.end_time || "",
-    venue: record.venue,
-    address: record.address || "",
-    latitude,
-    longitude,
-    description: record.description || "",
-    ticketUrl: record.ticket_url || "",
-    imageUrl: record.image_url || "",
-    price: record.price || "",
-    featured: isTruthy(record.featured),
+    id: record.id || eventId(title, index),
+    title,
+    category: record.type_of_event || record.category || record.type || "Event",
+    venue,
+    location,
+    ageRange: record.age_range || record.age || "",
+    price: record.tickets_from || record.price || "",
+    ticketUrl: record.ticket_link || record.ticket_url || record.url || "",
+    ...coordinates,
   };
 }
 
 export default async (request: Request) => {
   if (request.method !== "GET") return Response.json({ error: "Method not allowed" }, { status: 405 });
-
-  const sheetUrl = Netlify.env.get("GOOGLE_SHEET_CSV_URL");
-  if (!sheetUrl) {
-    return Response.json(
-      { error: "Add GOOGLE_SHEET_CSV_URL in Netlify to connect the published spreadsheet." },
-      { status: 503 },
-    );
-  }
+  const sheetUrl = Netlify.env.get("GOOGLE_SHEET_CSV_URL") || DEFAULT_SHEET_URL;
 
   try {
     const response = await fetch(sheetUrl, { headers: { Accept: "text/csv" } });
@@ -100,11 +107,8 @@ export default async (request: Request) => {
     if (rows.length < 2) return Response.json({ events: [], updatedAt: new Date().toISOString() });
 
     const headers = rows[0].map(normalizedHeader);
-    const events = rows.slice(1)
-      .map((values, index) => Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])))
-      .map(toEvent)
-      .filter((event): event is SheetEvent => event !== null)
-      .sort((first, second) => `${first.date} ${first.startTime}`.localeCompare(`${second.date} ${second.startTime}`));
+    const records = rows.slice(1).map((values) => Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])));
+    const events = (await Promise.all(records.map(toEvent))).filter((event): event is SheetEvent => event !== null);
 
     return Response.json(
       { events, updatedAt: new Date().toISOString() },
@@ -112,10 +116,8 @@ export default async (request: Request) => {
     );
   } catch (error) {
     console.error("Unable to read the configured Google Sheet", error instanceof Error ? error.message : "Unknown error");
-    return Response.json({ error: "The Google Sheet could not be read. Check that it is published as CSV." }, { status: 502 });
+    return Response.json({ error: "The event sheet could not be read right now." }, { status: 502 });
   }
 };
 
-export const config = {
-  path: "/api/events",
-};
+export const config = { path: "/api/events" };
