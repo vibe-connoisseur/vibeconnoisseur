@@ -61,30 +61,42 @@ a:focus-visible {
 }
 
 .wordmark {
-  width: 62px;
-  height: 62px;
+  width: max-content;
   color: var(--paper);
   text-decoration: none;
-  display: block;
-  border-radius: 50%;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(236, 233, 221, .2), 0 8px 24px rgba(0, 0, 0, .3);
-  transform: rotate(-3deg);
-  transition: transform 220ms ease, box-shadow 220ms ease;
+  display: flex;
+  align-items: center;
+  gap: 13px;
 }
 
-.wordmark:hover {
+.wordmark:hover img {
   transform: rotate(0deg) scale(1.04);
   box-shadow: 0 0 0 2px var(--acid), 0 10px 28px rgba(0, 0, 0, .38);
 }
 
 .wordmark img {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: 62px;
+  height: 62px;
   object-fit: cover;
-  border-radius: inherit;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(236, 233, 221, .2), 0 8px 24px rgba(0, 0, 0, .3);
+  transform: rotate(-3deg);
+  transition: transform 220ms ease, box-shadow 220ms ease;
 }
+
+.wordmark-name {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--display);
+  font-size: 15px;
+  line-height: .84;
+  letter-spacing: -.04em;
+  text-transform: uppercase;
+}
+
+.wordmark-name strong { font-weight: inherit; }
+.wordmark-name strong:last-child { color: var(--acid); }
 
 .header-meta {
   display: flex;
@@ -581,7 +593,9 @@ footer {
 @media (max-width: 760px) {
   .app-shell { padding: 0 15px; }
   .site-header { min-height: 72px; }
-  .wordmark { width: 52px; height: 52px; }
+  .wordmark { gap: 9px; }
+  .wordmark img { width: 52px; height: 52px; }
+  .wordmark-name { font-size: 12px; }
   .refresh-button span { display: none; }
   .hero { min-height: 310px; display: block; padding-top: 55px; }
   .edition { top: 24px; }
