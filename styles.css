@@ -518,26 +518,27 @@ select {
 .event-marker-wrap { background: none; border: 0; }
 .event-marker {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   color: var(--ink);
   background: var(--marker-color);
   border: 2px solid var(--ink);
-  box-shadow: 0 0 0 1px var(--marker-color), 0 7px 18px rgba(0,0,0,.45);
-  transform: rotate(45deg);
+  border-radius: 50% 50% 50% 0;
+  box-shadow: 0 0 0 1px var(--marker-color), 4px 7px 14px rgba(0,0,0,.42);
+  transform: rotate(-45deg);
   transition: transform 180ms ease;
 }
 
 .event-marker span {
   font-family: var(--display);
-  font-size: 10px;
-  transform: rotate(-45deg);
+  font-size: 8px;
+  transform: rotate(45deg);
 }
 
 .event-marker-wrap:hover .event-marker,
-.event-marker-wrap.is-active .event-marker { transform: rotate(45deg) scale(1.22); }
+.event-marker-wrap.is-active .event-marker { transform: rotate(-45deg) scale(1.18); }
 
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip { background: var(--paper); color: var(--ink); border-radius: 0; box-shadow: 8px 8px 0 rgba(17,18,15,.35); }
