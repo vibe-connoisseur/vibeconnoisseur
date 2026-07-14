@@ -1,4 +1,10 @@
-const LONDON_CENTER = [51.5072, -0.1276];
+https://docs.google.com/spreadsheets/d/e/2PACX-1vT53066usuQvIHnL08j_9XTFmW94Nkj4SRDQHS_OdQAsmpK9uMcEvGuX6l-Ji9m4ztZcEXvMc0LHEHW/pub?gid=909209203&single=true&output=csv
+
+fetch(CSV_URL)
+  .then(res => res.text())
+  .then(csvText => {
+    console.log(csvText);
+  });const LONDON_CENTER = [51.5072, -0.1276];
 const CATEGORY_COLORS = {
   Art: "#ff5938",
   Music: "#d7f64a",
