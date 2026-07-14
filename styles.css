@@ -531,10 +531,12 @@ select {
   transition: transform 180ms ease;
 }
 
-.event-marker span {
-  font-family: var(--display);
-  font-size: 8px;
-  transform: rotate(45deg);
+.event-marker::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
 }
 
 .event-marker-wrap:hover .event-marker,

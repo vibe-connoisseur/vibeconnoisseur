@@ -115,10 +115,10 @@ function filteredEvents() {
   );
 }
 
-function markerIcon(event, index) {
+function markerIcon(event) {
   return L.divIcon({
     className: "event-marker-wrap",
-    html: `<div class="event-marker" style="--marker-color:${colorFor(event.type)}"><span>${String(index + 1).padStart(2, "0")}</span></div>`,
+    html: `<div class="event-marker" style="--marker-color:${colorFor(event.type)}"></div>`,
     iconSize: [30, 34],
     iconAnchor: [13, 30],
     popupAnchor: [0, -30],
@@ -142,7 +142,7 @@ function renderMap(events) {
 
   events.forEach((event, index) => {
     const marker = L.marker([event.latitude, event.longitude], {
-      icon: markerIcon(event, index),
+      icon: markerIcon(event),
       title: event.title,
       riseOnHover: true,
     }).addTo(map);
