@@ -4,6 +4,7 @@ const TYPE_COLORS = {
   "Night Party": "#e86d4e",
   Festival: "#74a7c2",
   "Sports Event": "#caaa71",
+  Concert: "#e58eaa",
   Other: "#ece9dd",
 };
 
@@ -13,6 +14,7 @@ const state = {
   date: "all",
   type: "all",
   age: "all",
+  location: "all",
   selectedId: null,
 };
 
@@ -26,6 +28,7 @@ const elements = {
   eventList: document.querySelector("#eventList"),
   eventRail: document.querySelector("#eventRail"),
   lastUpdated: document.querySelector("#lastUpdated"),
+  locationFilter: document.querySelector("#locationFilter"),
   mapKey: document.querySelector("#mapKey"),
   mobileCount: document.querySelector("#mobileCount"),
   mobileListButton: document.querySelector("#mobileListButton"),
@@ -38,13 +41,16 @@ const elements = {
 
 const map = L.map("map", {
   zoomControl: false,
-  scrollWheelZoom: true,
-  touchZoom: "center",
+  dragging: false,
+  scrollWheelZoom: false,
+  doubleClickZoom: false,
+  boxZoom: false,
+  keyboard: false,
+  touchZoom: true,
   bounceAtZoomLimits: false,
   attributionControl: true,
 }).setView(LONDON_CENTER, 11);
 
-L.control.zoom({ position: "topright" }).addTo(map);
 L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
   attribution: "&copy; OpenStreetMap &copy; CARTO",
   maxZoom: 20,
@@ -111,7 +117,8 @@ function filteredEvents() {
   return state.events.filter((event) =>
     (state.date === "all" || event.date === state.date)
     && (state.type === "all" || event.type === state.type)
-    && (state.age === "all" || event.ageRange === state.age),
+    && (state.age === "all" || event.ageRange === state.age)
+    && (state.location === "all" || event.region === state.location),
   );
 }
 
@@ -119,19 +126,20 @@ function markerIcon(event) {
   return L.divIcon({
     className: "event-marker-wrap",
     html: `<div class="event-marker" style="--marker-color:${colorFor(event.type)}"></div>`,
-    iconSize: [30, 34],
-    iconAnchor: [13, 30],
-    popupAnchor: [0, -30],
+    iconSize: [26, 30],
+    iconAnchor: [11, 27],
+    popupAnchor: [0, -27],
   });
 }
 
 function popupMarkup(event) {
   const ticketUrl = safeUrl(event.ticketUrl);
-  return `<article class="popup-card" style="--event-color:${colorFor(event.type)}">
+  return `<article class="popup-card ${event.vibeApproved ? "approved" : ""}" style="--event-color:${colorFor(event.type)}">
+    ${event.vibeApproved ? '<img class="popup-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
     <p class="popup-label">${safeText(event.type)} / ${safeText(formatFullDate(event.date))}</p>
     <h2>${safeText(event.title)}</h2>
     <p class="popup-meta">${safeText(event.location)}</p>
-    <div class="popup-facts"><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
+    <div class="popup-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
     ${ticketUrl ? `<a class="popup-link" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Get tickets</span><span>↗</span></a>` : ""}
   </article>`;
 }
@@ -140,7 +148,7 @@ function renderMap(events) {
   state.markers.forEach((marker) => marker.remove());
   state.markers.clear();
 
-  events.forEach((event, index) => {
+  events.forEach((event) => {
     const marker = L.marker([event.latitude, event.longitude], {
       icon: markerIcon(event),
       title: event.title,
@@ -166,10 +174,10 @@ function renderCards(events) {
     return `<button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type)};animation-delay:${index * 45}ms">
       <span class="card-date">${parts.day}<small>${parts.month}</small></span>
       <span>
-        <span class="card-type">${safeText(event.type)}</span>
+        <span class="card-type">${safeText(event.type)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
-        <span class="card-bottom"><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
+        <span class="card-bottom"><span>${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
       </span>
     </button>`;
   }).join("");
@@ -236,18 +244,23 @@ function populateFilters() {
   const dates = [...new Set(state.events.map((event) => event.date))].sort();
   const types = [...new Set(state.events.map((event) => event.type))].sort();
   const ages = [...new Set(state.events.map((event) => event.ageRange))].sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
+  const regionOrder = ["East London", "South London", "West London", "North West London"];
+  const regions = regionOrder.filter((region) => state.events.some((event) => event.region === region));
   populateSelect(elements.dateFilter, dates, formatFilterDate);
   populateSelect(elements.typeFilter, types);
   populateSelect(elements.ageFilter, ages);
+  populateSelect(elements.locationFilter, regions);
 }
 
 function resetFilters() {
   state.date = "all";
   state.type = "all";
   state.age = "all";
+  state.location = "all";
   elements.dateFilter.value = "all";
   elements.typeFilter.value = "all";
   elements.ageFilter.value = "all";
+  elements.locationFilter.value = "all";
   render();
 }
 
@@ -293,6 +306,7 @@ async function loadEvents() {
 elements.dateFilter.addEventListener("change", (event) => { state.date = event.target.value; render(); });
 elements.typeFilter.addEventListener("change", (event) => { state.type = event.target.value; render(); });
 elements.ageFilter.addEventListener("change", (event) => { state.age = event.target.value; render(); });
+elements.locationFilter.addEventListener("change", (event) => { state.location = event.target.value; render(); });
 elements.clearFilters.addEventListener("click", resetFilters);
 elements.emptyReset.addEventListener("click", resetFilters);
 elements.refreshButton.addEventListener("click", loadEvents);

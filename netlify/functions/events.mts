@@ -5,9 +5,11 @@ type SheetEvent = {
   date: string;
   location: string;
   postcode: string;
+  region: string;
   ageRange: string;
   price: string;
   ticketUrl: string;
+  vibeApproved: boolean;
   latitude: number;
   longitude: number;
 };
@@ -78,6 +80,19 @@ function extractPostcode(value: string): string {
   return value.toUpperCase().match(/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/)?.[1].replace(/\s+/g, " ") || "";
 }
 
+function regionFromPostcode(postcode: string): string {
+  const area = postcode.match(/^[A-Z]+/)?.[0] || "";
+  if (["E", "EC", "IG", "RM"].includes(area)) return "East London";
+  if (["SE", "SW", "CR", "BR", "SM"].includes(area)) return "South London";
+  if (["W", "WC", "TW", "UB", "KT"].includes(area)) return "West London";
+  if (["N", "NW", "EN", "WD", "HA"].includes(area)) return "North West London";
+  return "";
+}
+
+function isYes(value = ""): boolean {
+  return ["yes", "y", "true", "1"].includes(value.trim().toLowerCase());
+}
+
 function safeTicketUrl(value: string): string {
   try {
     const url = new URL(value);
@@ -138,7 +153,8 @@ export default async (request: Request) => {
     const events = records.map((record, index): SheetEvent | null => {
       const postcode = extractPostcode(record.location);
       const position = coordinates.get(postcode);
-      if (!record.title || !record.date || !record.location || !position) return null;
+      const region = regionFromPostcode(postcode);
+      if (!record.title || !record.date || !record.location || !position || !region) return null;
 
       return {
         id: `${record.title}-${record.date}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
@@ -147,9 +163,11 @@ export default async (request: Request) => {
         date: normalizeDate(record.date),
         location: record.location,
         postcode,
+        region,
         ageRange: record.age_range || "All ages",
         price: record.tickets_from || "See tickets",
         ticketUrl: safeTicketUrl(record.ticket_link),
+        vibeApproved: isYes(record.vibe_approved),
         latitude: position[0],
         longitude: position[1],
       };

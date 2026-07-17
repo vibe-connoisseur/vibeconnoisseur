@@ -212,7 +212,7 @@ a:focus-visible {
 .filter-bar {
   min-height: 122px;
   display: grid;
-  grid-template-columns: 0.85fr repeat(3, 1fr);
+  grid-template-columns: 0.72fr repeat(4, 1fr);
   border-bottom: 1px solid var(--line);
 }
 
@@ -480,6 +480,16 @@ select {
   letter-spacing: .1em;
 }
 
+.card-approved {
+  width: 34px;
+  height: 34px;
+  margin: -8px 0 -8px auto;
+  border-radius: 50%;
+  object-fit: cover;
+  transform: rotate(-5deg);
+  box-shadow: 0 0 0 1px rgba(232, 109, 78, .35);
+}
+
 .card-type::before {
   content: "";
   width: 6px;
@@ -518,8 +528,8 @@ select {
 .event-marker-wrap { background: none; border: 0; }
 .event-marker {
   position: relative;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   color: var(--ink);
@@ -533,8 +543,8 @@ select {
 
 .event-marker::after {
   content: "";
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--ink);
 }
@@ -547,11 +557,13 @@ select {
 .leaflet-popup-content { width: 244px !important; margin: 0; }
 .leaflet-popup-close-button { top: 5px !important; right: 6px !important; color: var(--ink) !important; font: 20px var(--mono) !important; }
 
-.popup-card { padding: 20px; border-top: 5px solid var(--event-color); }
+.popup-card { position: relative; padding: 20px; border-top: 5px solid var(--event-color); }
+.popup-approved { position: absolute; top: 13px; right: 14px; width: 48px; height: 48px; border-radius: 50%; object-fit: cover; transform: rotate(5deg); }
 .popup-label { margin: 0 0 12px; color: #55574f; font-size: 8px; text-transform: uppercase; letter-spacing: .1em; }
 .popup-card h2 { margin: 0 20px 14px 0; font-family: var(--display); font-size: 20px; line-height: 1.05; text-transform: uppercase; }
+.popup-card.approved h2 { margin-right: 52px; }
 .popup-meta { margin: 0 0 15px; color: #57584f; font-size: 9px; line-height: 1.55; }
-.popup-facts { display: flex; gap: 7px; margin-bottom: 17px; }
+.popup-facts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 17px; }
 .popup-facts span { padding: 5px 7px; border: 1px solid rgba(17,18,15,.18); font-size: 8px; }
 .popup-link { display: flex; justify-content: space-between; padding-top: 12px; border-top: 1px solid rgba(17,18,15,.2); color: var(--ink); text-decoration: none; font-size: 9px; font-weight: 500; text-transform: uppercase; }
 .popup-link:hover { color: #58670e; }
@@ -589,7 +601,7 @@ footer {
   .header-meta { display: none; }
   .site-header { grid-template-columns: 1fr 1fr; }
   .hero { grid-template-columns: 1fr 220px; }
-  .filter-bar { grid-template-columns: 170px repeat(3, 1fr); }
+  .filter-bar { grid-template-columns: 145px repeat(4, 1fr); }
   .map-section { grid-template-columns: minmax(0, 1fr) 320px; }
 }
 

@@ -23,7 +23,6 @@
         <div class="header-meta">
           <span>London</span>
           <span>51.5072° N</span>
-          <span>Updated from Google Sheets</span>
         </div>
         <button class="refresh-button" id="refreshButton" type="button" aria-label="Refresh events">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.3 9A7 7 0 0 0 6.1 6.1L4 8m16 8-2.1 1.9A7 7 0 0 1 5.7 15" /></svg>
@@ -50,16 +49,20 @@
             <button id="clearFilters" type="button">Reset all</button>
           </div>
           <label class="select-wrap">
-            <span>01 / Date</span>
+            <span>Date</span>
             <select id="dateFilter"><option value="all">All dates</option></select>
           </label>
           <label class="select-wrap">
-            <span>02 / Event type</span>
+            <span>Event type</span>
             <select id="typeFilter"><option value="all">All event types</option></select>
           </label>
           <label class="select-wrap">
-            <span>03 / Age range</span>
+            <span>Age range</span>
             <select id="ageFilter"><option value="all">All age ranges</option></select>
+          </label>
+          <label class="select-wrap">
+            <span>Location</span>
+            <select id="locationFilter"><option value="all">All London</option></select>
           </label>
         </section>
 
