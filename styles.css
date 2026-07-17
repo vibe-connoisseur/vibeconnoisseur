@@ -149,17 +149,6 @@ a:focus-visible {
   overflow: hidden;
 }
 
-.edition {
-  position: absolute;
-  top: 40px;
-  left: 2px;
-  margin: 0;
-  color: var(--acid);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
 .hero h1 {
   margin: 50px 0 -11px;
   font-family: var(--display);
@@ -273,6 +262,57 @@ select {
   appearance: none;
   cursor: pointer;
   font-size: 13px;
+}
+
+.multiselect { position: relative; }
+
+.multiselect-toggle {
+  width: 100%;
+  padding: 3px 30px 3px 0;
+  border: 0;
+  background: var(--ink);
+  color: var(--paper);
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.multiselect-toggle.has-selection { color: var(--acid); }
+
+.multiselect-panel {
+  position: absolute;
+  z-index: 900;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+}
+
+.multiselect-panel[hidden] { display: none; }
+
+.multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 4px;
+  color: var(--paper);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.multiselect-option:hover { color: var(--acid); }
+
+.multiselect-option input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--acid);
+  cursor: pointer;
 }
 
 .map-section {
@@ -638,6 +678,7 @@ footer {
     transition: transform 280ms cubic-bezier(.2,.8,.2,1);
   }
   .event-rail.open { transform: translateY(0); }
+  .event-rail.open .card-date small { font-size: 14px; letter-spacing: .04em; }
   .rail-heading button { display: block; padding: 6px 0; border: 0; background: transparent; color: var(--acid); font-size: 9px; text-transform: uppercase; cursor: pointer; }
   .event-list { height: calc(72vh - 58px); }
   .mobile-list-button {
@@ -645,7 +686,7 @@ footer {
     z-index: 550;
     left: 16px;
     right: 16px;
-    bottom: 17px;
+    top: 62px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -659,7 +700,7 @@ footer {
     cursor: pointer;
   }
   .mobile-list-button strong { font: 19px var(--display); }
-  .map-key { left: 11px; right: 11px; bottom: 77px; max-width: none; }
+  .map-key { left: 11px; right: 11px; bottom: 14px; max-width: none; }
   footer { display: block; line-height: 1.8; }
   footer p { margin: 3px 0; }
 }
