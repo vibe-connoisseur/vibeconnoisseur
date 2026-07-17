@@ -1,724 +1,387 @@
-:root {
-  --ink: #11120f;
-  --panel: #181a16;
-  --panel-raised: #20221d;
-  --paper: #ece9dd;
-  --muted: #9a9b91;
-  --line: rgba(236, 233, 221, 0.17);
-  --acid: #d7f25a;
-  --coral: #e86d4e;
-  --sky: #74a7c2;
-  --sand: #caaa71;
-  --display: "Archivo Black", sans-serif;
-  --mono: "IBM Plex Mono", monospace;
+const LONDON_CENTER = [51.485, -0.085];
+const TYPE_COLORS = {
+  "Day Party": "#d7f25a",
+  "Night Party": "#e86d4e",
+  Festival: "#74a7c2",
+  "Sports Event": "#caaa71",
+  Concert: "#e58eaa",
+  Other: "#ece9dd",
+};
+
+const state = {
+  events: [],
+  markers: new Map(),
+  date: "all",
+  types: new Set(),
+  age: "all",
+  regions: new Set(),
+  selectedId: null,
+};
+
+const elements = {
+  ageFilter: document.querySelector("#ageFilter"),
+  clearFilters: document.querySelector("#clearFilters"),
+  closeRail: document.querySelector("#closeRail"),
+  dateFilter: document.querySelector("#dateFilter"),
+  emptyReset: document.querySelector("#emptyReset"),
+  emptyState: document.querySelector("#emptyState"),
+  eventList: document.querySelector("#eventList"),
+  eventRail: document.querySelector("#eventRail"),
+  locationToggle: document.querySelector("#locationFilterToggle"),
+  locationPanel: document.querySelector("#locationFilterPanel"),
+  mapKey: document.querySelector("#mapKey"),
+  mobileCount: document.querySelector("#mobileCount"),
+  mobileListButton: document.querySelector("#mobileListButton"),
+  refreshButton: document.querySelector("#refreshButton"),
+  resultCount: document.querySelector("#resultCount"),
+  syncStatus: document.querySelector("#syncStatus"),
+  typeToggle: document.querySelector("#typeFilterToggle"),
+  typePanel: document.querySelector("#typeFilterPanel"),
+  visibleCount: document.querySelector("#visibleCount"),
+};
+
+const map = L.map("map", {
+  zoomControl: false,
+  dragging: false,
+  scrollWheelZoom: false,
+  doubleClickZoom: false,
+  boxZoom: false,
+  keyboard: false,
+  touchZoom: true,
+  bounceAtZoomLimits: false,
+  attributionControl: true,
+}).setView(LONDON_CENTER, 11);
+
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+  attribution: "&copy; OpenStreetMap &copy; CARTO",
+  maxZoom: 20,
+  subdomains: "abcd",
+}).addTo(map);
+
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
+  maxZoom: 20,
+  subdomains: "abcd",
+  pane: "shadowPane",
+}).addTo(map);
+
+function safeText(value = "") {
+  const node = document.createElement("div");
+  node.textContent = value;
+  return node.innerHTML;
 }
 
-* { box-sizing: border-box; }
-
-html { scroll-behavior: smooth; }
-
-body {
-  margin: 0;
-  min-width: 320px;
-  color: var(--paper);
-  background:
-    radial-gradient(circle at 78% 5%, rgba(215, 242, 90, 0.07), transparent 28rem),
-    var(--ink);
-  font-family: var(--mono);
-}
-
-button, select { font: inherit; }
-button { color: inherit; }
-
-button:focus-visible,
-select:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--acid);
-  outline-offset: 3px;
-}
-
-.noise {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  pointer-events: none;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.8'/%3E%3C/svg%3E");
-}
-
-.app-shell {
-  width: min(1600px, 100%);
-  margin: 0 auto;
-  padding: 0 28px;
-}
-
-.site-header {
-  min-height: 86px;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-}
-
-.wordmark {
-  width: max-content;
-  color: var(--paper);
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-
-.wordmark:hover img {
-  transform: rotate(0deg) scale(1.04);
-  box-shadow: 0 0 0 2px var(--acid), 0 10px 28px rgba(0, 0, 0, .38);
-}
-
-.wordmark img {
-  display: block;
-  width: 62px;
-  height: 62px;
-  object-fit: cover;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(236, 233, 221, .2), 0 8px 24px rgba(0, 0, 0, .3);
-  transform: rotate(-3deg);
-  transition: transform 220ms ease, box-shadow 220ms ease;
-}
-
-.wordmark-name {
-  display: flex;
-  flex-direction: column;
-  font-family: var(--display);
-  font-size: 15px;
-  line-height: .84;
-  letter-spacing: -.04em;
-  text-transform: uppercase;
-}
-
-.wordmark-name strong { font-weight: inherit; }
-.wordmark-name strong:last-child { color: var(--acid); }
-
-.header-meta {
-  display: flex;
-  gap: 25px;
-  color: var(--muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.header-meta span + span::before {
-  content: "/";
-  margin-right: 25px;
-  color: #55574f;
-}
-
-.refresh-button {
-  justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  background: transparent;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.refresh-button svg {
-  width: 17px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: square;
-}
-
-.refresh-button:hover svg,
-.refresh-button.loading svg { transform: rotate(180deg); }
-.refresh-button svg { transition: transform 420ms ease; }
-
-.hero {
-  position: relative;
-  min-height: 360px;
-  padding: 45px 0 42px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 290px;
-  align-items: end;
-  border-bottom: 1px solid var(--line);
-  overflow: hidden;
-}
-
-.hero h1 {
-  margin: 50px 0 -11px;
-  font-family: var(--display);
-  font-size: clamp(72px, 11.1vw, 176px);
-  line-height: 0.72;
-  letter-spacing: -0.085em;
-  text-transform: uppercase;
-}
-
-.hero h1 span { display: block; }
-.hero h1 span:last-child { color: var(--acid); margin-left: 11.5%; }
-
-.hero-aside {
-  align-self: end;
-  padding: 0 6px 5px 25px;
-  border-left: 1px solid var(--line);
-}
-
-.hero-aside > p {
-  margin: 0 0 33px;
-  max-width: 28ch;
-  color: #c3c2b8;
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.live-status {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--muted);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.status-pulse {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--acid);
-  box-shadow: 0 0 0 4px rgba(215, 242, 90, 0.09);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.live-status.error .status-pulse { background: var(--coral); box-shadow: none; animation: none; }
-
-@keyframes pulse { 50% { opacity: 0.38; transform: scale(0.72); } }
-
-.filter-bar {
-  min-height: 122px;
-  display: grid;
-  grid-template-columns: 0.72fr repeat(4, 1fr);
-  border-bottom: 1px solid var(--line);
-}
-
-.filter-heading,
-.select-wrap {
-  min-width: 0;
-  padding: 21px 26px 20px;
-  border-right: 1px solid var(--line);
-}
-
-.filter-heading { padding-left: 0; }
-.select-wrap:last-child { border-right: 0; padding-right: 0; }
-
-.filter-heading > span,
-.select-wrap > span {
-  display: block;
-  margin-bottom: 15px;
-  color: var(--muted);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-.filter-heading > span { color: var(--paper); }
-
-.filter-heading button {
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid #66685f;
-  color: var(--muted);
-  background: none;
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.filter-heading button:hover { color: var(--acid); border-color: var(--acid); }
-
-.select-wrap { position: relative; }
-
-.select-wrap::after {
-  content: "↘";
-  position: absolute;
-  right: 25px;
-  bottom: 26px;
-  pointer-events: none;
-  color: var(--acid);
-  font-size: 14px;
-}
-
-.select-wrap:last-child::after { right: 0; }
-
-select {
-  width: 100%;
-  padding: 3px 30px 3px 0;
-  border: 0;
-  color: var(--paper);
-  background: var(--ink);
-  appearance: none;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.multiselect { position: relative; }
-
-.multiselect-toggle {
-  width: 100%;
-  padding: 3px 30px 3px 0;
-  border: 0;
-  background: var(--ink);
-  color: var(--paper);
-  text-align: left;
-  appearance: none;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.multiselect-toggle.has-selection { color: var(--acid); }
-
-.multiselect-panel {
-  position: absolute;
-  z-index: 900;
-  top: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  max-height: 240px;
-  overflow-y: auto;
-  padding: 10px;
-  background: var(--panel-raised);
-  border: 1px solid var(--line);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
-}
-
-.multiselect-panel[hidden] { display: none; }
-
-.multiselect-option {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 4px;
-  color: var(--paper);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.multiselect-option:hover { color: var(--acid); }
-
-.multiselect-option input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--acid);
-  cursor: pointer;
-}
-
-.map-section {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 375px;
-  min-height: 660px;
-  padding: 28px 0;
-}
-
-.map-panel {
-  position: relative;
-  min-width: 0;
-  border: 1px solid var(--line);
-  overflow: hidden;
-}
-
-#map {
-  width: 100%;
-  height: 100%;
-  min-height: 660px;
-  background: #171a18;
-}
-
-#map::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 450;
-  pointer-events: none;
-  box-shadow: inset 0 0 90px rgba(9, 10, 8, 0.48);
-}
-
-.map-topline {
-  position: absolute;
-  z-index: 500;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: space-between;
-  padding: 15px 17px;
-  color: #d0d0c7;
-  background: linear-gradient(to bottom, rgba(17,18,15,.82), transparent);
-  pointer-events: none;
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: .1em;
-}
-
-.map-key {
-  position: absolute;
-  z-index: 500;
-  left: 16px;
-  bottom: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px 14px;
-  max-width: calc(100% - 95px);
-  padding: 10px 12px;
-  background: rgba(17, 18, 15, 0.88);
-  backdrop-filter: blur(8px);
-}
-
-.gesture-hint {
-  position: absolute;
-  z-index: 520;
-  top: 50%;
-  left: 50%;
-  display: none;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 13px;
-  color: var(--paper);
-  background: rgba(17, 18, 15, .88);
-  border: 1px solid rgba(215, 242, 90, .45);
-  backdrop-filter: blur(8px);
-  pointer-events: none;
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(.92);
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: .1em;
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.gesture-hint svg {
-  width: 22px;
-  fill: none;
-  stroke: var(--acid);
-  stroke-width: 1.6;
-  stroke-linecap: square;
-}
-
-.map-panel.is-pinching {
-  border-color: rgba(215, 242, 90, .65);
-}
-
-.map-panel.is-pinching .gesture-hint {
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
-}
-
-.key-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #b5b5ad;
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-}
-
-.key-dot { width: 7px; height: 7px; transform: rotate(45deg); }
-
-.event-rail {
-  border: 1px solid var(--line);
-  border-left: 0;
-  background: var(--panel);
-  overflow: hidden;
-}
-
-.rail-heading {
-  height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 17px;
-  border-bottom: 1px solid var(--line);
-}
-
-.rail-heading p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: .1em;
-}
-
-.rail-heading p span { color: var(--paper); }
-.rail-heading button { display: none; }
-
-.event-list {
-  height: 600px;
-  overflow-y: auto;
-  scrollbar-color: #5c5e55 transparent;
-  scrollbar-width: thin;
-}
-
-.event-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: 65px 1fr;
-  min-height: 177px;
-  padding: 20px 18px 19px 16px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  background: transparent;
-  cursor: pointer;
-  transition: background 180ms ease, transform 180ms ease;
-  animation: cardIn 430ms both;
-}
-
-@keyframes cardIn { from { opacity: 0; transform: translateY(12px); } }
-
-.event-card:hover,
-.event-card.active { background: var(--panel-raised); }
-.event-card.active::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: 3px;
-  background: var(--event-color);
-}
-
-.card-date {
-  padding-top: 1px;
-  color: var(--event-color);
-  font-family: var(--display);
-  font-size: 30px;
-  line-height: .82;
-  letter-spacing: -.06em;
-  text-transform: uppercase;
-}
-
-.card-date small {
-  display: block;
-  margin-top: 9px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 8px;
-  letter-spacing: .1em;
-}
-
-.card-type {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: 0 0 11px;
-  color: var(--muted);
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: .1em;
-}
-
-.card-approved {
-  width: 34px;
-  height: 34px;
-  margin: -8px 0 -8px auto;
-  border-radius: 50%;
-  object-fit: cover;
-  transform: rotate(-5deg);
-  box-shadow: 0 0 0 1px rgba(232, 109, 78, .35);
-}
-
-.card-type::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  background: var(--event-color);
-  transform: rotate(45deg);
-}
-
-.event-card h2 {
-  margin: 0 0 13px;
-  font-family: var(--display);
-  font-size: 18px;
-  line-height: 1.08;
-  letter-spacing: -.035em;
-  text-transform: uppercase;
-}
-
-.card-location {
-  margin: 0;
-  color: #aaa9a0;
-  font-size: 9px;
-  line-height: 1.5;
-}
-
-.card-bottom {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 13px;
-  color: #d3d1c7;
-  font-size: 9px;
-}
-
-.card-bottom span:last-child { color: var(--event-color); }
-
-.event-marker-wrap { background: none; border: 0; }
-.event-marker {
-  position: relative;
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  color: var(--ink);
-  background: var(--marker-color);
-  border: 2px solid var(--ink);
-  border-radius: 50% 50% 50% 0;
-  box-shadow: 0 0 0 1px var(--marker-color), 4px 7px 14px rgba(0,0,0,.42);
-  transform: rotate(-45deg);
-  transition: transform 180ms ease;
-}
-
-.event-marker::after {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ink);
-}
-
-.event-marker-wrap:hover .event-marker,
-.event-marker-wrap.is-active .event-marker { transform: rotate(-45deg) scale(1.18); }
-
-.leaflet-popup-content-wrapper,
-.leaflet-popup-tip { background: var(--paper); color: var(--ink); border-radius: 0; box-shadow: 8px 8px 0 rgba(17,18,15,.35); }
-.leaflet-popup-content { width: 244px !important; margin: 0; }
-.leaflet-popup-close-button { top: 5px !important; right: 6px !important; color: var(--ink) !important; font: 20px var(--mono) !important; }
-
-.popup-card { position: relative; padding: 20px; border-top: 5px solid var(--event-color); }
-.popup-approved { position: absolute; top: 42px; right: 14px; width: 48px; height: 48px; border-radius: 50%; object-fit: cover; transform: rotate(5deg); }
-.popup-label { margin: 0 0 12px; color: #55574f; font-size: 8px; text-transform: uppercase; letter-spacing: .1em; }
-.popup-card h2 { margin: 0 20px 14px 0; font-family: var(--display); font-size: 20px; line-height: 1.05; text-transform: uppercase; }
-.popup-card.approved h2 { margin-right: 52px; }
-.popup-meta { margin: 0 0 15px; color: #57584f; font-size: 9px; line-height: 1.55; }
-.popup-facts { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 17px; }
-.popup-facts span { padding: 5px 7px; border: 1px solid rgba(17,18,15,.18); font-size: 8px; }
-.popup-link { display: flex; justify-content: space-between; padding-top: 12px; border-top: 1px solid rgba(17,18,15,.2); color: var(--ink); text-decoration: none; font-size: 9px; font-weight: 500; text-transform: uppercase; }
-.popup-link:hover { color: #58670e; }
-
-.leaflet-control-zoom { border: 0 !important; box-shadow: none !important; }
-.leaflet-control-zoom a { color: var(--paper) !important; background: rgba(17,18,15,.9) !important; border-color: var(--line) !important; border-radius: 0 !important; }
-.leaflet-control-attribution { color: #797a72; background: rgba(17,18,15,.72) !important; font-size: 7px; }
-.leaflet-control-attribution a { color: #aaa; }
-
-.mobile-list-button { display: none; }
-
-.empty-state {
-  margin: 28px 0;
-  padding: 70px 30px;
-  border: 1px solid var(--line);
-  text-align: center;
-}
-.empty-state span { color: var(--coral); font-size: 9px; text-transform: uppercase; letter-spacing: .12em; }
-.empty-state h2 { margin: 15px auto 25px; font: 34px/1 var(--display); text-transform: uppercase; }
-.empty-state button { padding: 12px 16px; border: 1px solid var(--paper); background: transparent; cursor: pointer; font-size: 10px; text-transform: uppercase; }
-.empty-state button:hover { color: var(--ink); background: var(--acid); border-color: var(--acid); }
-
-footer {
-  display: flex;
-  justify-content: space-between;
-  padding: 26px 0 33px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 8px;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-@media (max-width: 1000px) {
-  .header-meta { display: none; }
-  .site-header { grid-template-columns: 1fr 1fr; }
-  .hero { grid-template-columns: 1fr 220px; }
-  .filter-bar { grid-template-columns: 145px repeat(4, 1fr); }
-  .map-section { grid-template-columns: minmax(0, 1fr) 320px; }
-}
-
-@media (max-width: 760px) {
-  .app-shell { padding: 0 15px; }
-  .site-header { min-height: 72px; }
-  .wordmark { gap: 9px; }
-  .wordmark img { width: 52px; height: 52px; }
-  .wordmark-name { font-size: 12px; }
-  .refresh-button span { display: none; }
-  .hero { min-height: 310px; display: block; padding-top: 55px; }
-  .edition { top: 24px; }
-  .hero h1 { margin: 42px 0 42px; font-size: clamp(58px, 19vw, 112px); line-height: .76; }
-  .hero h1 span:last-child { margin-left: 4%; }
-  .hero-aside { margin-left: 38%; padding-left: 15px; }
-  .hero-aside > p { margin-bottom: 18px; }
-  .filter-bar { grid-template-columns: 1fr; padding: 14px 0; }
-  .filter-heading, .select-wrap, .select-wrap:last-child { min-height: 68px; padding: 13px 0; border-right: 0; border-bottom: 1px solid var(--line); }
-  .filter-heading { min-height: 48px; display: flex; align-items: center; justify-content: space-between; }
-  .filter-heading > span, .select-wrap > span { margin-bottom: 8px; }
-  .select-wrap::after, .select-wrap:last-child::after { right: 3px; bottom: 18px; }
-  .map-section { display: block; min-height: 530px; padding: 18px 0; }
-  #map { min-height: 530px; }
-  .event-rail {
-    position: fixed;
-    z-index: 1000;
-    left: 15px;
-    right: 15px;
-    bottom: 0;
-    max-height: 72vh;
-    border-left: 1px solid var(--line);
-    box-shadow: 0 -20px 60px rgba(0,0,0,.45);
-    transform: translateY(105%);
-    transition: transform 280ms cubic-bezier(.2,.8,.2,1);
+function safeUrl(value = "") {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
   }
-  .event-rail.open { transform: translateY(0); }
-  .event-rail.open .card-date small { font-size: 14px; letter-spacing: .04em; }
-  .rail-heading button { display: block; padding: 6px 0; border: 0; background: transparent; color: var(--acid); font-size: 9px; text-transform: uppercase; cursor: pointer; }
-  .event-list { height: calc(72vh - 58px); }
-  .mobile-list-button {
-    position: absolute;
-    z-index: 550;
-    left: 16px;
-    right: 16px;
-    top: 62px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    min-height: 48px;
-    padding: 0 14px;
-    border: 0;
-    color: var(--ink);
-    background: var(--acid);
-    text-transform: uppercase;
-    font-size: 10px;
-    cursor: pointer;
-  }
-  .mobile-list-button strong { font: 19px var(--display); }
-  .map-key { left: 11px; right: 11px; bottom: 14px; max-width: none; }
-  footer { display: block; line-height: 1.8; }
-  footer p { margin: 3px 0; }
 }
 
-@media (hover: none) and (pointer: coarse) {
-  .gesture-hint {
-    display: flex;
-    animation: gestureIntro 3.6s 1.2s both;
+function colorFor(type) {
+  return TYPE_COLORS[type] || TYPE_COLORS.Other;
+}
+
+function dateObject(value) {
+  return new Date(`${value}T12:00:00Z`);
+}
+
+function formatFullDate(value) {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(dateObject(value));
+}
+
+function formatFilterDate(value) {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(dateObject(value));
+}
+
+function dateParts(value) {
+  const date = dateObject(value);
+  return {
+    day: new Intl.DateTimeFormat("en-GB", { day: "2-digit", timeZone: "UTC" }).format(date),
+    month: new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" }).format(date),
+  };
+}
+
+function slugify(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+function filteredEvents() {
+  return state.events.filter((event) => {
+    const matchesDate = state.date === "all" || event.date === state.date;
+    const matchesAge = state.age === "all" || event.ageRange === state.age;
+    const matchesType =
+      state.types.size === 0
+      || event.type.some((type) => state.types.has(type))
+      || (state.types.has("Vibe Approved") && event.vibeApproved);
+    const matchesRegion = state.regions.size === 0 || state.regions.has(event.region);
+    return matchesDate && matchesAge && matchesType && matchesRegion;
+  });
+}
+
+function markerIcon(event) {
+  return L.divIcon({
+    className: "event-marker-wrap",
+    html: `<div class="event-marker" style="--marker-color:${colorFor(event.type[0])}"></div>`,
+    iconSize: [26, 30],
+    iconAnchor: [11, 27],
+    popupAnchor: [0, -27],
+  });
+}
+
+function popupMarkup(event) {
+  const ticketUrl = safeUrl(event.ticketUrl);
+  const typeLabel = event.type.join(" / ");
+  return `<article class="popup-card ${event.vibeApproved ? "approved" : ""}" style="--event-color:${colorFor(event.type[0])}">
+    ${event.vibeApproved ? '<img class="popup-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
+    <p class="popup-label">${safeText(typeLabel)} / ${safeText(formatFullDate(event.date))}</p>
+    <h2>${safeText(event.title)}</h2>
+    <p class="popup-meta">${safeText(event.location)}</p>
+    <div class="popup-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
+    ${ticketUrl ? `<a class="popup-link" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Get tickets</span><span>↗</span></a>` : ""}
+  </article>`;
+}
+
+function renderMap(events) {
+  state.markers.forEach((marker) => marker.remove());
+  state.markers.clear();
+
+  events.forEach((event) => {
+    const marker = L.marker([event.latitude, event.longitude], {
+      icon: markerIcon(event),
+      title: event.title,
+      riseOnHover: true,
+    }).addTo(map);
+
+    marker.bindPopup(popupMarkup(event), { closeButton: true, maxWidth: 280, offset: [0, -2] });
+    marker.on("click", () => selectEvent(event.id, false));
+    marker.on("popupclose", () => clearSelection());
+    state.markers.set(event.id, marker);
+  });
+
+  if (events.length === 1) map.setView([events[0].latitude, events[0].longitude], 14, { animate: true });
+  if (events.length > 1) {
+    const bounds = L.latLngBounds(events.map((event) => [event.latitude, event.longitude]));
+    map.fitBounds(bounds, { padding: [55, 55], maxZoom: 12, animate: true });
+  }
+}
+
+function renderCards(events) {
+  elements.eventList.innerHTML = events.map((event, index) => {
+    const parts = dateParts(event.date);
+    const typeLabel = event.type.join(" / ");
+    return `<button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
+      <span class="card-date">${parts.day}<small>${parts.month}</small></span>
+      <span>
+        <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
+        <h2>${safeText(event.title)}</h2>
+        <span class="card-location">${safeText(event.location)}</span>
+        <span class="card-bottom"><span>${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
+      </span>
+    </button>`;
+  }).join("");
+
+  elements.eventList.querySelectorAll(".event-card").forEach((card) => {
+    card.addEventListener("click", () => selectEvent(card.dataset.eventId, true));
+  });
+}
+
+function renderKey(events) {
+  const types = [...new Set(events.flatMap((event) => event.type))];
+  elements.mapKey.innerHTML = types.map((type) =>
+    `<span class="key-item"><span class="key-dot" style="background:${colorFor(type)}"></span>${safeText(type)}</span>`,
+  ).join("");
+}
+
+function render() {
+  const events = filteredEvents();
+  if (!events.some((event) => event.id === state.selectedId)) state.selectedId = null;
+
+  renderMap(events);
+  renderCards(events);
+  renderKey(events);
+
+  const countLabel = `${events.length} ${events.length === 1 ? "location" : "locations"}`;
+  elements.resultCount.textContent = events.length;
+  elements.mobileCount.textContent = events.length;
+  elements.visibleCount.textContent = countLabel;
+  elements.emptyState.hidden = events.length !== 0;
+  document.querySelector(".map-section").hidden = events.length === 0;
+}
+
+function selectEvent(id, openPopup) {
+  state.selectedId = id;
+  document.querySelectorAll(".event-card").forEach((card) => card.classList.toggle("active", card.dataset.eventId === id));
+  state.markers.forEach((marker, markerId) => marker.getElement()?.classList.toggle("is-active", markerId === id));
+
+  const marker = state.markers.get(id);
+  if (marker) {
+    map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 13), { duration: 0.65 });
+    if (openPopup) marker.openPopup();
   }
 
-  .map-panel.is-pinching .gesture-hint { animation: none; }
+  if (window.innerWidth <= 760) closeMobileRail();
 }
 
-@keyframes gestureIntro {
-  0%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(.92); }
-  18%, 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+function clearSelection() {
+  state.selectedId = null;
+  document.querySelectorAll(".event-card").forEach((card) => card.classList.remove("active"));
+  state.markers.forEach((marker) => marker.getElement()?.classList.remove("is-active"));
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+function populateSelect(select, values, formatter = (value) => value) {
+  const firstOption = select.options[0];
+  select.replaceChildren(firstOption, ...values.map((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = formatter(value);
+    return option;
+  }));
 }
+
+function updateToggleLabel(toggle, values, allLabel) {
+  if (values.size === 0) {
+    toggle.textContent = allLabel;
+    toggle.classList.remove("has-selection");
+    return;
+  }
+  toggle.textContent = values.size === 1 ? [...values][0] : `${values.size} selected`;
+  toggle.classList.add("has-selection");
+}
+
+function buildMultiselect(panel, toggle, values, stateSet, allLabel) {
+  panel.innerHTML = values.map((value) => {
+    const id = `${panel.id}-${slugify(value)}`;
+    return `<label class="multiselect-option" for="${id}">
+      <input type="checkbox" id="${id}" value="${safeText(value)}" ${stateSet.has(value) ? "checked" : ""} />
+      <span>${safeText(value)}</span>
+    </label>`;
+  }).join("");
+
+  panel.querySelectorAll("input[type=checkbox]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) stateSet.add(checkbox.value);
+      else stateSet.delete(checkbox.value);
+      updateToggleLabel(toggle, stateSet, allLabel);
+      render();
+    });
+  });
+
+  updateToggleLabel(toggle, stateSet, allLabel);
+}
+
+function closeAllDropdowns() {
+  document.querySelectorAll(".multiselect-panel").forEach((panel) => { panel.hidden = true; });
+  document.querySelectorAll(".multiselect-toggle").forEach((toggle) => toggle.setAttribute("aria-expanded", "false"));
+}
+
+function setupDropdown(toggle, panel) {
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const wasOpen = !panel.hidden;
+    closeAllDropdowns();
+    panel.hidden = wasOpen;
+    toggle.setAttribute("aria-expanded", String(!wasOpen));
+  });
+  panel.addEventListener("click", (event) => event.stopPropagation());
+}
+
+document.addEventListener("click", closeAllDropdowns);
+
+function populateFilters() {
+  const dates = [...new Set(state.events.map((event) => event.date))].sort();
+  const types = [...new Set(state.events.flatMap((event) => event.type))].sort();
+  types.push("Vibe Approved");
+  const ages = [...new Set(state.events.map((event) => event.ageRange))].sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
+  const regionOrder = ["East London", "South London", "West London", "North West London"];
+  const regions = regionOrder.filter((region) => state.events.some((event) => event.region === region));
+
+  populateSelect(elements.dateFilter, dates, formatFilterDate);
+  populateSelect(elements.ageFilter, ages);
+  buildMultiselect(elements.typePanel, elements.typeToggle, types, state.types, "All event types");
+  buildMultiselect(elements.locationPanel, elements.locationToggle, regions, state.regions, "All London");
+}
+
+function resetFilters() {
+  state.date = "all";
+  state.age = "all";
+  state.types.clear();
+  state.regions.clear();
+  elements.dateFilter.value = "all";
+  elements.ageFilter.value = "all";
+  populateFilters();
+  render();
+}
+
+function openMobileRail() {
+  elements.eventRail.classList.add("open");
+  elements.mobileListButton.setAttribute("aria-expanded", "true");
+}
+
+function closeMobileRail() {
+  elements.eventRail.classList.remove("open");
+  elements.mobileListButton.setAttribute("aria-expanded", "false");
+}
+
+function setLoading(isLoading) {
+  elements.refreshButton.classList.toggle("loading", isLoading);
+  elements.refreshButton.disabled = isLoading;
+}
+
+async function loadEvents() {
+  setLoading(true);
+  elements.syncStatus.classList.remove("error");
+  elements.syncStatus.lastElementChild.textContent = "Reading the guest list";
+
+  try {
+    const response = await fetch("/api/events", { headers: { Accept: "application/json" }, cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load events");
+
+    state.events = Array.isArray(payload.events) ? payload.events : [];
+    populateFilters();
+    render();
+    elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
+  } catch (error) {
+    elements.syncStatus.classList.add("error");
+    elements.syncStatus.lastElementChild.textContent = error.message || "The event feed is offline";
+  } finally {
+    setLoading(false);
+  }
+}
+
+elements.dateFilter.addEventListener("change", (event) => { state.date = event.target.value; render(); });
+elements.ageFilter.addEventListener("change", (event) => { state.age = event.target.value; render(); });
+elements.clearFilters.addEventListener("click", resetFilters);
+elements.emptyReset.addEventListener("click", resetFilters);
+elements.refreshButton.addEventListener("click", loadEvents);
+elements.mobileListButton.addEventListener("click", openMobileRail);
+elements.closeRail.addEventListener("click", closeMobileRail);
+setupDropdown(elements.typeToggle, elements.typePanel);
+setupDropdown(elements.locationToggle, elements.locationPanel);
+
+const mapPanel = document.querySelector(".map-panel");
+const mapElement = document.querySelector("#map");
+
+function updatePinchState(event) {
+  mapPanel.classList.toggle("is-pinching", event.touches.length > 1);
+}
+
+mapElement.addEventListener("touchstart", updatePinchState, { passive: true });
+mapElement.addEventListener("touchmove", updatePinchState, { passive: true });
+mapElement.addEventListener("touchend", updatePinchState, { passive: true });
+mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-pinching"), { passive: true });
+
+loadEvents();
