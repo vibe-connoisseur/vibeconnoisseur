@@ -1,42 +1,30 @@
 # Vibe Connoisseur
 
-A responsive London events map powered by a published Google Sheet and a Netlify Function. Curators update the spreadsheet; the site refreshes automatically without a rebuild or code change.
+A dark-mode London event map powered by a published Google Sheet and a Netlify Function. The site maps every event, opens full ticket details from each marker, and filters the list by date, event type, age range, and London region.
 
-## Connect a Google Sheet
+## Google Sheet format
 
-Create a sheet with these headers in the first row:
+The connected sheet uses these columns:
 
 ```text
-id,title,category,date,start_time,end_time,venue,address,latitude,longitude,description,ticket_url,image_url,price,featured,published
+Title,Type of Event,Date,Location,Age Range,Tickets From,Vibe Approved,Ticket Link
 ```
 
-Required fields are `title`, `date`, `venue`, `latitude`, and `longitude`. Use `YYYY-MM-DD` for dates and 24-hour `HH:MM` times. Set `published` to `TRUE` to show an event. If the `published` cell is empty, the event is also shown; set it to `FALSE` to hide the row.
+Dates are accepted in `DD/MM/YYYY` format. Locations should include a complete UK postcode so the server can place the event on the map and assign it to East, South, West, or North West London. Set `Vibe Approved` to `Yes` to display the approval badge. The function converts dates to a consistent format, geocodes postcodes through Postcodes.io, validates ticket links, and returns the map-ready data from `/api/events`.
 
-Suggested categories are `Art`, `Music`, `Food`, `Film`, and `Culture`. New category names still work and receive the fallback marker color.
-
-In Google Sheets:
-
-1. Choose **File → Share → Publish to web**.
-2. Select the events tab and choose **Comma-separated values (.csv)**.
-3. Publish and copy the generated URL.
-4. In Netlify, add an environment variable named `GOOGLE_SHEET_CSV_URL` containing that URL.
-5. Redeploy the site so the function can read the new environment variable.
-
-The sheet is fetched server-side through `/api/events`. Responses are cached briefly, the browser refreshes every five minutes, and visitors can also use the **Refresh sheet** button.
+The current published sheet is configured as a default source. It can be replaced without editing code by setting `GOOGLE_SHEET_CSV_URL` in Netlify to another published CSV URL using the same column structure.
 
 ## Local development
 
-Run the site with Netlify Dev so the function route is available:
+Run the project with Netlify Dev so the event API is available:
 
 ```bash
 netlify dev --port 8889
 ```
 
-Set `GOOGLE_SHEET_CSV_URL` in the Netlify project environment before starting local development. Do not add the published URL directly to client-side JavaScript.
-
 ## Main files
 
-- `index.html` contains the page structure.
-- `styles.css` contains the responsive editorial interface.
-- `app.js` renders map markers, filters, event cards, and spreadsheet sync states.
-- `netlify/functions/events.mts` reads and validates the published CSV feed.
+- `index.html` contains the page structure and filter controls.
+- `styles.css` contains the responsive dark editorial design.
+- `app.js` renders the map, event cards, popups, and filters.
+- `netlify/functions/events.mts` reads the sheet and geocodes each event.
