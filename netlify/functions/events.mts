@@ -1,7 +1,7 @@
 type SheetEvent = {
   id: string;
   title: string;
-  type: string;
+  type: string[];
   date: string;
   location: string;
   postcode: string;
@@ -29,6 +29,16 @@ const KNOWN_COORDINATES: Record<string, [number, number]> = {
   "SE16 2ET": [51.494206, -0.057447],
   "SE19 2BB": [51.418998, -0.067743],
   "SE10 0JH": [51.501113, -0.001277],
+};
+
+// Used when a sheet row has no specific address (blank, or marked TBC) but
+// does mention a general London area in the location text.
+const REGION_FALLBACKS: Record<string, { postcode: string; latitude: number; longitude: number }> = {
+  "west london": { postcode: "WC1", latitude: 51.5225, longitude: -0.1225 },
+  "south london": { postcode: "SE1", latitude: 51.5045, longitude: -0.0865 },
+  "north london": { postcode: "N1", latitude: 51.5362, longitude: -0.1033 },
+  "east london": { postcode: "E1", latitude: 51.515, longitude: -0.0722 },
+  london: { postcode: "SE1", latitude: 51.5045, longitude: -0.0865 },
 };
 
 function parseCsv(text: string): string[][] {
@@ -102,6 +112,23 @@ function safeTicketUrl(value: string): string {
   }
 }
 
+function splitTypes(value: string): string[] {
+  const types = value
+    .split(/\s*(?:,|\/|&|\band\b)\s*/i)
+    .map((type) => type.trim())
+    .filter(Boolean);
+  return types.length ? types : ["Other"];
+}
+
+function fallbackForLocation(location: string): { postcode: string; latitude: number; longitude: number } | null {
+  const lower = location.toLowerCase();
+  const order = ["west london", "south london", "north london", "east london", "london"];
+  for (const key of order) {
+    if (lower.includes(key)) return REGION_FALLBACKS[key];
+  }
+  return null;
+}
+
 async function geocodePostcodes(postcodes: string[]): Promise<Map<string, [number, number]>> {
   const uniquePostcodes = [...new Set(postcodes.filter(Boolean))];
   const coordinates = new Map<string, [number, number]>();
@@ -148,19 +175,33 @@ export default async (request: Request) => {
     const records = rows.slice(1).map((values) =>
       Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])),
     );
-    const coordinates = await geocodePostcodes(records.map((record) => extractPostcode(record.location)));
+
+    const recordPostcodes = records.map((record) => extractPostcode(record.location));
+    const coordinates = await geocodePostcodes(recordPostcodes.filter(Boolean));
+    const today = new Date().toISOString().slice(0, 10);
 
     const events = records.map((record, index): SheetEvent | null => {
-      const postcode = extractPostcode(record.location);
-      const position = coordinates.get(postcode);
-      const region = regionFromPostcode(postcode);
-      if (!record.title || !record.date || !record.location || !position || !region) return null;
+      let postcode = recordPostcodes[index];
+      let position = postcode ? coordinates.get(postcode) : undefined;
+      let region = postcode ? regionFromPostcode(postcode) : "";
+
+      if (!position || !region) {
+        const fallback = fallbackForLocation(record.location);
+        if (fallback) {
+          postcode = fallback.postcode;
+          position = [fallback.latitude, fallback.longitude];
+          region = regionFromPostcode(fallback.postcode);
+        }
+      }
+
+      const date = normalizeDate(record.date);
+      if (!record.title || !date || !record.location || !position || !region) return null;
 
       return {
-        id: `${record.title}-${record.date}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+        id: `${record.title}-${date}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
         title: record.title,
-        type: record.type_of_event || "Other",
-        date: normalizeDate(record.date),
+        type: splitTypes(record.type_of_event || "Other"),
+        date,
         location: record.location,
         postcode,
         region,
@@ -172,6 +213,7 @@ export default async (request: Request) => {
         longitude: position[1],
       };
     }).filter((event): event is SheetEvent => event !== null)
+      .filter((event) => event.date >= today)
       .sort((first, second) => first.date.localeCompare(second.date));
 
     return Response.json(
