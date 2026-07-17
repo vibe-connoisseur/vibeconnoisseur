@@ -32,7 +32,6 @@
 
       <main id="top">
         <section class="hero" aria-labelledby="pageTitle">
-          <p class="edition">Field Notes / 2026</p>
           <h1 id="pageTitle"><span>Where’s</span><span>the vibe?</span></h1>
           <div class="hero-aside">
             <p>London’s parties, festivals and live moments—pinned, sorted and ready when you are.</p>
@@ -52,18 +51,20 @@
             <span>Date</span>
             <select id="dateFilter"><option value="all">All dates</option></select>
           </label>
-          <label class="select-wrap">
+          <div class="select-wrap multiselect">
             <span>Event type</span>
-            <select id="typeFilter"><option value="all">All event types</option></select>
-          </label>
+            <button type="button" class="multiselect-toggle" id="typeFilterToggle" aria-expanded="false" aria-haspopup="listbox">All event types</button>
+            <div class="multiselect-panel" id="typeFilterPanel" hidden></div>
+          </div>
           <label class="select-wrap">
             <span>Age range</span>
             <select id="ageFilter"><option value="all">All age ranges</option></select>
           </label>
-          <label class="select-wrap">
+          <div class="select-wrap multiselect">
             <span>Location</span>
-            <select id="locationFilter"><option value="all">All London</option></select>
-          </label>
+            <button type="button" class="multiselect-toggle" id="locationFilterToggle" aria-expanded="false" aria-haspopup="listbox">All London</button>
+            <div class="multiselect-panel" id="locationFilterPanel" hidden></div>
+          </div>
         </section>
 
         <section class="map-section" aria-label="Event map and results">
@@ -101,7 +102,6 @@
 
       <footer>
         <p>Made for plans that leave the group chat.</p>
-        <p id="lastUpdated">Waiting for the latest sheet update</p>
       </footer>
     </div>
 
