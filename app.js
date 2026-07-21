@@ -7,8 +7,8 @@ const TYPE_COLORS = {
   Concert: "#e58eaa",
   "LGBTQ+": "#ece9dd",
   Brunch: "#a35ee5",
-  "Networking Events": "#8b1a2b",
-  "Games Nights": "#6b4226",
+  "Networking Event": "#8b1a2b",
+  "Games Night": "#6b4226",
   Other: "#ece9dd",
 };
 
