@@ -1,4 +1,15 @@
-const LONDON_CENTER = [51.485, -0.085];
+const TYPE_COLORS = {
+  "Day Party": "#d7f25a",
+  "Night Party": "#e86d4e",
+  Festival: "#74a7c2",
+  "Sports Event": "#caaa71",
+  Concert: "#e58eaa",
+  "LGBTQ+": "#ece9dd",
+  Brunch: "#a35ee5",
+  "Networking Events": "#8b1a2b",
+  "Games Nights": "#6b4226",
+  Other: "#ece9dd",
+};const LONDON_CENTER = [51.485, -0.085];
 const TYPE_COLORS = {
   "Day Party": "#d7f25a",
   "Night Party": "#e86d4e",
