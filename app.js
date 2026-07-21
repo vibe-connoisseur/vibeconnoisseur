@@ -9,7 +9,8 @@ const TYPE_COLORS = {
   "Networking Events": "#8b1a2b",
   "Games Nights": "#6b4226",
   Other: "#ece9dd",
-};const LONDON_CENTER = [51.485, -0.085];
+}
+  ;const LONDON_CENTER = [51.485, -0.085];
 const TYPE_COLORS = {
   "Day Party": "#d7f25a",
   "Night Party": "#e86d4e",
