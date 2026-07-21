@@ -1,3 +1,4 @@
+const LONDON_CENTER = [51.485, -0.085];
 const TYPE_COLORS = {
   "Day Party": "#d7f25a",
   "Night Party": "#e86d4e",
@@ -8,15 +9,6 @@ const TYPE_COLORS = {
   Brunch: "#a35ee5",
   "Networking Events": "#8b1a2b",
   "Games Nights": "#6b4226",
-  Other: "#ece9dd",
-}
-  ;const LONDON_CENTER = [51.485, -0.085];
-const TYPE_COLORS = {
-  "Day Party": "#d7f25a",
-  "Night Party": "#e86d4e",
-  Festival: "#74a7c2",
-  "Sports Event": "#caaa71",
-  Concert: "#e58eaa",
   Other: "#ece9dd",
 };
 
@@ -162,6 +154,7 @@ function popupMarkup(event) {
     <h2>${safeText(event.title)}</h2>
     <p class="popup-meta">${safeText(event.location)}</p>
     <div class="popup-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
+    ${event.genres?.length ? `<div class="popup-genres">${event.genres.map((genre) => `<span>${safeText(genre)}</span>`).join("")}</div>` : ""}
     ${ticketUrl ? `<a class="popup-link" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Get tickets</span><span>↗</span></a>` : ""}
   </article>`;
 }
@@ -200,6 +193,7 @@ function renderCards(events) {
         <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
+        ${event.genres?.length ? `<span class="card-genres">${event.genres.map((genre) => safeText(genre)).join(" · ")}</span>` : ""}
         <span class="card-bottom"><span>${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
       </span>
     </button>`;
