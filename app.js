@@ -209,7 +209,7 @@ function renderCards(events) {
         <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
-        ${event.tags?.length ? `<span class="card-tags">${event.tags.map((tag) => safeText(tag)).join(" · ")}</span>` : ""}
+        ${event.tags?.length ? `<span class="card-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</span>` : ""}
         <span class="card-bottom"><span>${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
       </span>
     </button>`;
