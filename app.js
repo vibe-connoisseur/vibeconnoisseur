@@ -43,7 +43,6 @@ const elements = {
   syncStatus: document.querySelector("#syncStatus"),
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
-  visibleCount: document.querySelector("#visibleCount"),
 };
 
 const map = L.map("map", {
@@ -235,10 +234,8 @@ function render() {
   renderCards(events);
   renderKey(events);
 
-  const countLabel = `${events.length} ${events.length === 1 ? "location" : "locations"}`;
   elements.resultCount.textContent = events.length;
   elements.mobileCount.textContent = events.length;
-  elements.visibleCount.textContent = countLabel;
   elements.emptyState.hidden = events.length !== 0;
   document.querySelector(".map-section").hidden = events.length === 0;
 }
