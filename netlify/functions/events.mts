@@ -12,6 +12,7 @@ type SheetEvent = {
   vibeApproved: boolean;
   latitude: number;
   longitude: number;
+  tags: string[];
 };
 
 type PostcodeResult = {
@@ -110,6 +111,12 @@ function safeTicketUrl(value: string): string {
   } catch {
     return "";
   }
+}
+
+function parseTags(value: string): string[] {
+  if (!value.trim()) return [];
+  const pieces = value.includes(",") ? value.split(",") : value.split(/\s+/);
+  return [...new Set(pieces.map((tag) => tag.trim()).filter(Boolean))];
 }
 
 function splitTypes(value: string): string[] {
@@ -211,6 +218,7 @@ export default async (request: Request) => {
         vibeApproved: isYes(record.vibe_approved),
         latitude: position[0],
         longitude: position[1],
+        tags: parseTags(record.additional_tags || ""),
       };
     }).filter((event): event is SheetEvent => event !== null)
       .filter((event) => event.date >= today)
