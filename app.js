@@ -7,8 +7,8 @@ const TYPE_COLORS = {
   Concert: "#e58eaa",
   "LGBTQ+": "#ece9dd",
   Brunch: "#a35ee5",
-  "Networking Event": "#8b1a2b",
-  "Games Night": "#6b4226",
+  "Networking Events": "#8b1a2b",
+  "Games Nights": "#6b4226",
   Other: "#ece9dd",
 };
 
@@ -19,6 +19,7 @@ const state = {
   types: new Set(),
   age: "all",
   regions: new Set(),
+  search: "",
   selectedId: null,
 };
 
@@ -38,6 +39,7 @@ const elements = {
   mobileListButton: document.querySelector("#mobileListButton"),
   refreshButton: document.querySelector("#refreshButton"),
   resultCount: document.querySelector("#resultCount"),
+  searchInput: document.querySelector("#searchInput"),
   syncStatus: document.querySelector("#syncStatus"),
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
@@ -122,7 +124,21 @@ function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+function matchesSearch(event, query) {
+  if (!query) return true;
+  const haystack = [
+    event.title,
+    event.location,
+    event.region,
+    event.ageRange,
+    ...(event.type || []),
+    ...(event.tags || []),
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
 function filteredEvents() {
+  const query = state.search.trim().toLowerCase();
   return state.events.filter((event) => {
     const matchesDate = state.date === "all" || event.date === state.date;
     const matchesAge = state.age === "all" || event.ageRange === state.age;
@@ -131,7 +147,7 @@ function filteredEvents() {
       || event.type.some((type) => state.types.has(type))
       || (state.types.has("Vibe Approved") && event.vibeApproved);
     const matchesRegion = state.regions.size === 0 || state.regions.has(event.region);
-    return matchesDate && matchesAge && matchesType && matchesRegion;
+    return matchesDate && matchesAge && matchesType && matchesRegion && matchesSearch(event, query);
   });
 }
 
@@ -154,7 +170,7 @@ function popupMarkup(event) {
     <h2>${safeText(event.title)}</h2>
     <p class="popup-meta">${safeText(event.location)}</p>
     <div class="popup-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
-    ${event.genres?.length ? `<div class="popup-genres">${event.genres.map((genre) => `<span>${safeText(genre)}</span>`).join("")}</div>` : ""}
+    ${event.tags?.length ? `<div class="popup-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</div>` : ""}
     ${ticketUrl ? `<a class="popup-link" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Get tickets</span><span>↗</span></a>` : ""}
   </article>`;
 }
@@ -193,7 +209,7 @@ function renderCards(events) {
         <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
-        ${event.genres?.length ? `<span class="card-genres">${event.genres.map((genre) => safeText(genre)).join(" · ")}</span>` : ""}
+        ${event.tags?.length ? `<span class="card-tags">${event.tags.map((tag) => safeText(tag)).join(" · ")}</span>` : ""}
         <span class="card-bottom"><span>${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
       </span>
     </button>`;
@@ -325,8 +341,10 @@ function resetFilters() {
   state.age = "all";
   state.types.clear();
   state.regions.clear();
+  state.search = "";
   elements.dateFilter.value = "all";
   elements.ageFilter.value = "all";
+  elements.searchInput.value = "";
   populateFilters();
   render();
 }
@@ -370,6 +388,7 @@ async function loadEvents() {
 
 elements.dateFilter.addEventListener("change", (event) => { state.date = event.target.value; render(); });
 elements.ageFilter.addEventListener("change", (event) => { state.age = event.target.value; render(); });
+elements.searchInput.addEventListener("input", (event) => { state.search = event.target.value; render(); });
 elements.clearFilters.addEventListener("click", resetFilters);
 elements.emptyReset.addEventListener("click", resetFilters);
 elements.refreshButton.addEventListener("click", loadEvents);
