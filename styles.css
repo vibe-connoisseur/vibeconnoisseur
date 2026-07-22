@@ -315,6 +315,45 @@ select {
   cursor: pointer;
 }
 
+.search-wrap input {
+  width: 100%;
+  padding: 3px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.search-wrap input::placeholder { color: var(--muted); }
+.search-wrap input:focus { outline: none; border-bottom-color: var(--acid); }
+
+.card-tags {
+  display: block;
+  margin-top: 3px;
+  color: var(--acid);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.popup-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 6px 0;
+}
+
+.popup-tags span {
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  color: var(--event-color, var(--acid));
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .map-section {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 375px;
