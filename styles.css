@@ -331,11 +331,18 @@ select {
 
 .card-tags {
   display: block;
-  margin-top: 3px;
-  color: var(--acid);
-  font-size: 10px;
+  margin-top: 5px;
+}
+
+.card-tags span {
+  display: inline-block;
+  margin: 2px 4px 0 0;
+  padding: 2px 7px;
+  background: #000;
+  color: #fff;
+  font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
 }
 
 .popup-tags {
@@ -347,8 +354,8 @@ select {
 
 .popup-tags span {
   padding: 2px 8px;
-  border: 1px solid currentColor;
-  color: var(--event-color, var(--acid));
+  background: #000;
+  color: #fff;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
