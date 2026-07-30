@@ -179,9 +179,14 @@ export default async (request: Request) => {
     if (rows.length < 2) return Response.json({ events: [], updatedAt: new Date().toISOString() });
 
     const headers = rows[0].map(normalizeHeader);
-    const records = rows.slice(1).map((values) =>
+    const allRecords = rows.slice(1).map((values) =>
       Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])),
     );
+
+    // Only rows marked Approved reach the app. New form submissions land
+    // in a separate tab, so they're invisible here until copied over
+    // with Approved = Yes.
+    const records = allRecords.filter((record) => isYes(record.approved));
 
     const recordPostcodes = records.map((record) => extractPostcode(record.location));
     const coordinates = await geocodePostcodes(recordPostcodes.filter(Boolean));
