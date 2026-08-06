@@ -136,16 +136,31 @@ function fallbackForLocation(location: string): { postcode: string; latitude: nu
   return null;
 }
 
+// postcodes.io's bulk lookup endpoint rejects requests over 100 postcodes
+// (returns 400), so once the sheet grows past ~100 unique venues a single
+// request silently fails and no events beyond the KNOWN_COORDINATES /
+// REGION_FALLBACKS safety nets get a position. Chunking keeps every
+// approved event geocoded regardless of sheet size.
+const POSTCODES_IO_BATCH_LIMIT = 100;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
 async function geocodePostcodes(postcodes: string[]): Promise<Map<string, [number, number]>> {
   const uniquePostcodes = [...new Set(postcodes.filter(Boolean))];
   const coordinates = new Map<string, [number, number]>();
 
-  if (uniquePostcodes.length) {
+  const batches = chunk(uniquePostcodes, POSTCODES_IO_BATCH_LIMIT);
+
+  await Promise.all(batches.map(async (batch) => {
     try {
       const response = await fetch("https://api.postcodes.io/postcodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postcodes: uniquePostcodes }),
+        body: JSON.stringify({ postcodes: batch }),
       });
 
       if (response.ok) {
@@ -153,11 +168,13 @@ async function geocodePostcodes(postcodes: string[]): Promise<Map<string, [numbe
         for (const item of body.result || []) {
           if (item.result) coordinates.set(item.query, [item.result.latitude, item.result.longitude]);
         }
+      } else {
+        console.error(`Postcode batch lookup returned ${response.status} for ${batch.length} postcodes`);
       }
     } catch (error) {
       console.error("Postcode lookup failed", error instanceof Error ? error.message : "Unknown error");
     }
-  }
+  }));
 
   for (const postcode of uniquePostcodes) {
     if (!coordinates.has(postcode) && KNOWN_COORDINATES[postcode]) coordinates.set(postcode, KNOWN_COORDINATES[postcode]);
