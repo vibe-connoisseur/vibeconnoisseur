@@ -162,10 +162,8 @@ function markerIcon(event) {
 
 function popupMarkup(event) {
   const ticketUrl = safeUrl(event.ticketUrl);
-  const flyerUrl = safeUrl(event.flyerUrl);
   const typeLabel = event.type.join(" / ");
   return `<article class="popup-card ${event.vibeApproved ? "approved" : ""}" style="--event-color:${colorFor(event.type[0])}">
-    ${flyerUrl ? `<img class="popup-flyer" src="${flyerUrl}" alt="${safeText(event.title)} flyer" loading="lazy" />` : ""}
     ${event.vibeApproved ? '<img class="popup-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
     <p class="popup-label">${safeText(typeLabel)} / ${safeText(formatFullDate(event.date))}</p>
     <h2>${safeText(event.title)}</h2>
