@@ -14,6 +14,7 @@ const TYPE_COLORS = {
 
 const state = {
   events: [],
+  flyers: new Map(), // slug -> image url
   markers: new Map(),
   date: "all",
   types: new Set(),
@@ -27,6 +28,8 @@ const elements = {
   ageFilter: document.querySelector("#ageFilter"),
   clearFilters: document.querySelector("#clearFilters"),
   closeRail: document.querySelector("#closeRail"),
+  concertFlyerRail: document.querySelector("#concertFlyerRail"),
+  concertFlyerSection: document.querySelector("#concertFlyerSection"),
   dateFilter: document.querySelector("#dateFilter"),
   emptyReset: document.querySelector("#emptyReset"),
   emptyState: document.querySelector("#emptyState"),
@@ -43,6 +46,8 @@ const elements = {
   syncStatus: document.querySelector("#syncStatus"),
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
+  vibeFlyerRail: document.querySelector("#vibeFlyerRail"),
+  vibeFlyerSection: document.querySelector("#vibeFlyerSection"),
 };
 
 const map = L.map("map", {
@@ -226,6 +231,48 @@ function renderKey(events) {
   ).join("");
 }
 
+// --- Flyer rails -----------------------------------------------------
+// These are deliberately unaffected by the filter bar: they're a browse
+// surface for "what's got a flyer uploaded", not a filtered results view.
+
+function flyerCardMarkup(event, url) {
+  return `<button class="flyer-card" type="button" data-event-id="${safeText(event.id)}" style="--event-color:${colorFor(event.type[0])}">
+    <img src="${safeText(url)}" alt="${safeText(event.title)} flyer" loading="lazy" />
+    <span class="flyer-card-meta">
+      <strong>${safeText(event.title)}</strong>
+      <span>${safeText(formatFilterDate(event.date))} · ${safeText(event.location)}</span>
+    </span>
+  </button>`;
+}
+
+function renderFlyerRail(railElement, sectionElement, events) {
+  if (!railElement || !sectionElement) return;
+
+  const cards = events
+    .map((event) => ({ event, url: state.flyers.get(event.slug) }))
+    .filter((entry) => Boolean(entry.url));
+
+  sectionElement.hidden = cards.length === 0;
+  railElement.innerHTML = cards.map(({ event, url }) => flyerCardMarkup(event, url)).join("");
+
+  railElement.querySelectorAll(".flyer-card").forEach((card) => {
+    card.addEventListener("click", () => selectEvent(card.dataset.eventId, true));
+  });
+}
+
+function renderFlyerRails() {
+  renderFlyerRail(
+    elements.vibeFlyerRail,
+    elements.vibeFlyerSection,
+    state.events.filter((event) => event.vibeApproved),
+  );
+  renderFlyerRail(
+    elements.concertFlyerRail,
+    elements.concertFlyerSection,
+    state.events.filter((event) => event.type.includes("Concert")),
+  );
+}
+
 function render() {
   const events = filteredEvents();
   if (!events.some((event) => event.id === state.selectedId)) state.selectedId = null;
@@ -361,19 +408,37 @@ function setLoading(isLoading) {
   elements.refreshButton.disabled = isLoading;
 }
 
+async function fetchJson(url) {
+  const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `Unable to load ${url}`);
+  return payload;
+}
+
+async function loadFlyers() {
+  try {
+    const payload = await fetchJson("/api/flyers");
+    state.flyers = new Map((payload.flyers || []).map((flyer) => [flyer.slug, flyer.url]));
+  } catch (error) {
+    // Flyers are a bonus feature — if the Drive folder isn't configured
+    // yet, or the lookup fails, the rest of the app should still work.
+    console.error("Flyer feed unavailable:", error.message);
+    state.flyers = new Map();
+  }
+}
+
 async function loadEvents() {
   setLoading(true);
   elements.syncStatus.classList.remove("error");
   elements.syncStatus.lastElementChild.textContent = "Reading the guest list";
 
   try {
-    const response = await fetch("/api/events", { headers: { Accept: "application/json" }, cache: "no-store" });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "Unable to load events");
+    const [eventsPayload] = await Promise.all([fetchJson("/api/events"), loadFlyers()]);
 
-    state.events = Array.isArray(payload.events) ? payload.events : [];
+    state.events = Array.isArray(eventsPayload.events) ? eventsPayload.events : [];
     populateFilters();
     render();
+    renderFlyerRails();
     elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
   } catch (error) {
     elements.syncStatus.classList.add("error");
