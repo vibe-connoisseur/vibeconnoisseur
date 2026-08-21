@@ -635,10 +635,8 @@ select {
 .leaflet-popup-content { width: 244px !important; margin: 0; }
 .leaflet-popup-close-button { top: 5px !important; right: 6px !important; color: var(--ink) !important; font: 20px var(--mono) !important; }
 
-.popup-card { position: relative; padding: 20px; border-top: 5px solid var(--event-color); overflow: hidden; }
-.popup-flyer { display: block; width: calc(100% + 40px); height: 130px; margin: -20px -20px 14px; object-fit: cover; }
+.popup-card { position: relative; padding: 20px; border-top: 5px solid var(--event-color); }
 .popup-approved { position: absolute; top: 42px; right: 14px; width: 48px; height: 48px; border-radius: 50%; object-fit: cover; transform: rotate(5deg); }
-.popup-card.approved .popup-flyer + .popup-approved { top: 152px; }
 .popup-label { margin: 0 0 12px; color: #55574f; font-size: 8px; text-transform: uppercase; letter-spacing: .1em; }
 .popup-card h2 { margin: 0 20px 14px 0; font-family: var(--display); font-size: 20px; line-height: 1.05; text-transform: uppercase; }
 .popup-card.approved h2 { margin-right: 52px; }
