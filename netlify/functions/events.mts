@@ -124,15 +124,22 @@ function safeAbsoluteUrl(value: string): string {
 // share links, and Dropbox's "?dl=0" links, and converts each to a
 // direct-image URL. Anything else (Imgur, direct CDN links, etc.) is
 // already a raw link and passes through untouched.
+//
+// Drive links use the lh3.googleusercontent.com host rather than
+// drive.google.com/uc?export=view — the uc?export=view form frequently
+// gets blocked by Google when loaded as an embedded <img> (even though
+// it opens fine as a standalone page), while the lh3 host is the same
+// underlying file served in the format Google's own apps use for
+// thumbnails/embeds, and is far more reliable for this use case.
 function toDirectImageUrl(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "";
 
   const driveFileMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-  if (driveFileMatch) return `https://drive.google.com/uc?export=view&id=${driveFileMatch[1]}`;
+  if (driveFileMatch) return `https://lh3.googleusercontent.com/d/${driveFileMatch[1]}=w1000`;
 
   const driveOpenMatch = trimmed.match(/drive\.google\.com\/open\?id=([^&]+)/);
-  if (driveOpenMatch) return `https://drive.google.com/uc?export=view&id=${driveOpenMatch[1]}`;
+  if (driveOpenMatch) return `https://lh3.googleusercontent.com/d/${driveOpenMatch[1]}=w1000`;
 
   if (trimmed.includes("dropbox.com") && trimmed.includes("dl=0")) {
     return trimmed.replace("dl=0", "raw=1");
