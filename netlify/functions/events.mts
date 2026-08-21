@@ -1,6 +1,5 @@
 type SheetEvent = {
   id: string;
-  slug: string;
   title: string;
   type: string[];
   date: string;
@@ -10,6 +9,7 @@ type SheetEvent = {
   ageRange: string;
   price: string;
   ticketUrl: string;
+  flyerUrl: string;
   vibeApproved: boolean;
   latitude: number;
   longitude: number;
@@ -105,13 +105,40 @@ function isYes(value = ""): boolean {
   return ["yes", "y", "true", "1"].includes(value.trim().toLowerCase());
 }
 
-function safeTicketUrl(value: string): string {
+// Shared validator for any field that should be a safe, absolute http(s) URL
+// — used for both ticket links and flyer image links so a malformed or
+// javascript: URL in the sheet can never leak into the rendered page.
+function safeAbsoluteUrl(value: string): string {
   try {
     const url = new URL(value);
     return ["http:", "https:"].includes(url.protocol) ? url.href : "";
   } catch {
     return "";
   }
+}
+
+// People paste whatever share link their phone gives them, which is
+// usually a "viewer page" link rather than a raw image link, so those
+// need rewriting into a direct-image form before the <img> tag can use
+// them. Recognises Google Drive's "file/d/<id>/view" and "open?id=<id>"
+// share links, and Dropbox's "?dl=0" links, and converts each to a
+// direct-image URL. Anything else (Imgur, direct CDN links, etc.) is
+// already a raw link and passes through untouched.
+function toDirectImageUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const driveFileMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  if (driveFileMatch) return `https://drive.google.com/uc?export=view&id=${driveFileMatch[1]}`;
+
+  const driveOpenMatch = trimmed.match(/drive\.google\.com\/open\?id=([^&]+)/);
+  if (driveOpenMatch) return `https://drive.google.com/uc?export=view&id=${driveOpenMatch[1]}`;
+
+  if (trimmed.includes("dropbox.com") && trimmed.includes("dl=0")) {
+    return trimmed.replace("dl=0", "raw=1");
+  }
+
+  return trimmed;
 }
 
 function parseTags(value: string): string[] {
@@ -126,10 +153,6 @@ function splitTypes(value: string): string[] {
     .map((type) => type.trim())
     .filter(Boolean);
   return types.length ? types : ["Other"];
-}
-
-function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 function fallbackForLocation(location: string): { postcode: string; latitude: number; longitude: number } | null {
@@ -231,15 +254,8 @@ export default async (request: Request) => {
       const date = normalizeDate(record.date);
       if (!record.title || !date || !record.location || !position || !region) return null;
 
-      // Stable slug used only for matching flyer image filenames uploaded
-      // to the Drive folder. Deliberately excludes the row index so it
-      // doesn't shift if the sheet gets reordered — unlike `id` below,
-      // which still needs the index to stay unique for map markers/cards.
-      const slug = slugify(`${record.title}-${date}`);
-
       return {
         id: `${record.title}-${date}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-        slug,
         title: record.title,
         type: splitTypes(record.type_of_event || "Other"),
         date,
@@ -248,7 +264,13 @@ export default async (request: Request) => {
         region,
         ageRange: record.age_range || "All ages",
         price: record.tickets_from || "See tickets",
-        ticketUrl: safeTicketUrl(record.ticket_link),
+        ticketUrl: safeAbsoluteUrl(record.ticket_link),
+        // Reads a "Flyer Image URL" column from the sheet (normalized header:
+        // flyer_image_url). Leave the cell blank for events with no flyer —
+        // the app just skips the image, no slug or filename matching needed.
+        // Whatever share link was pasted (Drive, Dropbox, or already-direct)
+        // gets normalised to a direct-image URL before it's validated.
+        flyerUrl: safeAbsoluteUrl(toDirectImageUrl(record.flyer_image_url || record.flyer || "")),
         vibeApproved: isYes(record.vibe_approved),
         latitude: position[0],
         longitude: position[1],
