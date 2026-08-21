@@ -852,14 +852,7 @@ footer {
   .app-shell { padding: 0 15px; }
   .flyer-showcase { padding: 24px 0 4px; }
   .flyer-showcase-title { font-size: 22px; margin-bottom: 14px; }
-  .flyer-card { flex: 0 0 200px; }
-  .flyer-card-image { height: 150px; background-size: cover; }
-  .flyer-card-body { padding: 14px 16px 18px; }
-  .flyer-card-type { font-size: 8px; margin-bottom: 9px; }
-  .flyer-card h3 { font-size: 16px; margin-bottom: 10px; }
-  .flyer-card-location { font-size: 9px; margin-bottom: 10px; }
-  .flyer-card-meta { font-size: 9px; gap: 8px; margin-bottom: 10px; }
-  .flyer-card-tags span { font-size: 8px; padding: 2px 7px; }
+  .flyer-card { flex: 0 0 240px; }
   .flyer-rail-scrubber { display: none; }
   .site-header { min-height: 72px; }
   .wordmark { gap: 9px; }
