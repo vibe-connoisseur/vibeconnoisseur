@@ -27,6 +27,8 @@ const elements = {
   ageFilter: document.querySelector("#ageFilter"),
   clearFilters: document.querySelector("#clearFilters"),
   closeRail: document.querySelector("#closeRail"),
+  concertRail: document.querySelector("#concertRail"),
+  concertShowcase: document.querySelector("#concertShowcase"),
   dateFilter: document.querySelector("#dateFilter"),
   emptyReset: document.querySelector("#emptyReset"),
   emptyState: document.querySelector("#emptyState"),
@@ -43,6 +45,8 @@ const elements = {
   syncStatus: document.querySelector("#syncStatus"),
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
+  vibeApprovedRail: document.querySelector("#vibeApprovedRail"),
+  vibeApprovedShowcase: document.querySelector("#vibeApprovedShowcase"),
 };
 
 const map = L.map("map", {
@@ -202,9 +206,8 @@ function renderCards(events) {
   elements.eventList.innerHTML = events.map((event, index) => {
     const parts = dateParts(event.date);
     const typeLabel = event.type.join(" / ");
-    const flyerUrl = safeUrl(event.flyerUrl);
-    return `<button class="event-card ${state.selectedId === event.id ? "active" : ""} ${flyerUrl ? "has-flyer" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
-      ${flyerUrl ? `<span class="card-flyer" style="background-image:url('${flyerUrl}')" aria-hidden="true"></span>` : `<span class="card-date">${parts.day}<small>${parts.month}</small></span>`}
+    return `<button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
+      <span class="card-date">${parts.day}<small>${parts.month}</small></span>
       <span>
         <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
@@ -225,6 +228,35 @@ function renderKey(events) {
   elements.mapKey.innerHTML = types.map((type) =>
     `<span class="key-item"><span class="key-dot" style="background:${colorFor(type)}"></span>${safeText(type)}</span>`,
   ).join("");
+}
+
+function flyerCardMarkup(event) {
+  const ticketUrl = safeUrl(event.ticketUrl);
+  const flyerUrl = safeUrl(event.flyerUrl);
+  const typeLabel = event.type.join(" / ");
+  return `<a class="flyer-card ${flyerUrl ? "" : "no-flyer"}" style="--event-color:${colorFor(event.type[0])}" href="${ticketUrl || "#"}" target="${ticketUrl ? "_blank" : "_self"}" rel="noopener noreferrer">
+    <span class="flyer-card-image" ${flyerUrl ? `style="background-image:url('${flyerUrl}')"` : ""} aria-hidden="true">
+      ${event.vibeApproved ? '<img class="flyer-card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
+    </span>
+    <span class="flyer-card-body">
+      <span class="flyer-card-type">${safeText(typeLabel)} / ${safeText(formatFilterDate(event.date))}</span>
+      <h3>${safeText(event.title)}</h3>
+      <span class="flyer-card-location">${safeText(event.location)}</span>
+      <span class="flyer-card-meta"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></span>
+      ${event.tags?.length ? `<span class="flyer-card-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</span>` : ""}
+    </span>
+  </a>`;
+}
+
+function renderFlyerShowcases() {
+  const vibeApprovedEvents = state.events.filter((event) => event.vibeApproved);
+  const concertEvents = state.events.filter((event) => event.type.includes("Concert"));
+
+  elements.vibeApprovedShowcase.hidden = vibeApprovedEvents.length === 0;
+  elements.vibeApprovedRail.innerHTML = vibeApprovedEvents.map(flyerCardMarkup).join("");
+
+  elements.concertShowcase.hidden = concertEvents.length === 0;
+  elements.concertRail.innerHTML = concertEvents.map(flyerCardMarkup).join("");
 }
 
 function render() {
@@ -374,6 +406,7 @@ async function loadEvents() {
 
     state.events = Array.isArray(payload.events) ? payload.events : [];
     populateFilters();
+    renderFlyerShowcases();
     render();
     elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
   } catch (error) {
