@@ -471,4 +471,22 @@ mapElement.addEventListener("touchmove", updatePinchState, { passive: true });
 mapElement.addEventListener("touchend", updatePinchState, { passive: true });
 mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-pinching"), { passive: true });
 
+const vibeInfoButton = document.querySelector("#vibeApprovedInfo");
+const vibeInfoTooltip = document.querySelector("#vibeApprovedTooltip");
+
+if (vibeInfoButton && vibeInfoTooltip) {
+  vibeInfoButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = vibeInfoTooltip.classList.toggle("is-visible");
+    vibeInfoButton.classList.toggle("is-open", isOpen);
+    vibeInfoButton.setAttribute("aria-expanded", String(isOpen));
+  });
+
+  document.addEventListener("click", () => {
+    vibeInfoTooltip.classList.remove("is-visible");
+    vibeInfoButton.classList.remove("is-open");
+    vibeInfoButton.setAttribute("aria-expanded", "false");
+  });
+}
+
 loadEvents();
