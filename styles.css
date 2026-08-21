@@ -294,6 +294,9 @@ a:focus-visible {
   background: var(--panel);
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  display: block;
   transition: transform 180ms ease, background 180ms ease;
 }
 
