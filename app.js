@@ -28,6 +28,7 @@ const elements = {
   clearFilters: document.querySelector("#clearFilters"),
   closeRail: document.querySelector("#closeRail"),
   concertRail: document.querySelector("#concertRail"),
+  concertScrubber: document.querySelector("#concertScrubber"),
   concertShowcase: document.querySelector("#concertShowcase"),
   dateFilter: document.querySelector("#dateFilter"),
   emptyReset: document.querySelector("#emptyReset"),
@@ -46,6 +47,7 @@ const elements = {
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
   vibeApprovedRail: document.querySelector("#vibeApprovedRail"),
+  vibeApprovedScrubber: document.querySelector("#vibeApprovedScrubber"),
   vibeApprovedShowcase: document.querySelector("#vibeApprovedShowcase"),
 };
 
@@ -234,9 +236,9 @@ function flyerCardMarkup(event) {
   const ticketUrl = safeUrl(event.ticketUrl);
   const flyerUrl = safeUrl(event.flyerUrl);
   const typeLabel = event.type.join(" / ");
-  return `<a class="flyer-card ${flyerUrl ? "" : "no-flyer"}" style="--event-color:${colorFor(event.type[0])}" href="${ticketUrl || "#"}" target="${ticketUrl ? "_blank" : "_self"}" rel="noopener noreferrer">
+  return `<a class="flyer-card ${flyerUrl ? "" : "no-flyer"}" style="--event-color:${colorFor(event.type[0])}" href="${ticketUrl || "#"}" target="${ticketUrl ? "_blank" : "_self"}" rel="noopener noreferrer" draggable="false">
     <span class="flyer-card-image" ${flyerUrl ? `style="background-image:url('${flyerUrl}')"` : ""} aria-hidden="true">
-      ${event.vibeApproved ? '<img class="flyer-card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
+      ${event.vibeApproved ? '<img class="flyer-card-approved" src="assets/vibe-approved.png" alt="Vibe approved" draggable="false" />' : ""}
     </span>
     <span class="flyer-card-body">
       <span class="flyer-card-type">${safeText(typeLabel)} / ${safeText(formatFilterDate(event.date))}</span>
@@ -254,10 +256,87 @@ function renderFlyerShowcases() {
 
   elements.vibeApprovedShowcase.hidden = vibeApprovedEvents.length === 0;
   elements.vibeApprovedRail.innerHTML = vibeApprovedEvents.map(flyerCardMarkup).join("");
+  syncRailScrubber(elements.vibeApprovedRail, elements.vibeApprovedScrubber);
 
   elements.concertShowcase.hidden = concertEvents.length === 0;
   elements.concertRail.innerHTML = concertEvents.map(flyerCardMarkup).join("");
+  syncRailScrubber(elements.concertRail, elements.concertScrubber);
 }
+
+// Desktop-only visible slider (hidden on mobile via CSS, where native touch
+// scrolling is left untouched). Keeps the slider's range in sync with how
+// far the row can actually scroll, and keeps slider <-> rail position
+// mirrored in both directions.
+function syncRailScrubber(rail, scrubber) {
+  const max = Math.max(0, rail.scrollWidth - rail.clientWidth);
+  scrubber.max = String(max);
+  scrubber.value = String(rail.scrollLeft);
+  scrubber.disabled = max === 0;
+}
+
+function bindRailScrubber(rail, scrubber) {
+  scrubber.addEventListener("input", () => {
+    rail.scrollLeft = Number(scrubber.value);
+  });
+
+  rail.addEventListener("scroll", () => {
+    scrubber.value = String(rail.scrollLeft);
+  });
+
+  window.addEventListener("resize", () => syncRailScrubber(rail, scrubber));
+}
+
+// Flyer cards are <a> links, which browsers try to native-drag by default —
+// that swallows mouse-drag gestures instead of scrolling the row. This adds
+// manual click-and-drag scrolling, plus converts a plain vertical mouse
+// wheel into horizontal movement so trackpads/mice without native
+// horizontal scroll support still work.
+function setupRailDragScroll(rail) {
+  let isDragging = false;
+  let dragMoved = false;
+  let startX = 0;
+  let startScrollLeft = 0;
+
+  rail.addEventListener("mousedown", (event) => {
+    isDragging = true;
+    dragMoved = false;
+    startX = event.pageX;
+    startScrollLeft = rail.scrollLeft;
+    rail.classList.add("is-dragging");
+  });
+
+  window.addEventListener("mousemove", (event) => {
+    if (!isDragging) return;
+    const delta = event.pageX - startX;
+    if (Math.abs(delta) > 4) dragMoved = true;
+    rail.scrollLeft = startScrollLeft - delta;
+  });
+
+  window.addEventListener("mouseup", () => {
+    isDragging = false;
+    rail.classList.remove("is-dragging");
+  });
+
+  // If the mouse actually dragged (not just clicked), swallow the
+  // resulting click so it doesn't also open the card's link.
+  rail.addEventListener("click", (event) => {
+    if (dragMoved) {
+      event.preventDefault();
+      dragMoved = false;
+    }
+  }, true);
+
+  rail.addEventListener("wheel", (event) => {
+    if (event.deltaX !== 0) return;
+    event.preventDefault();
+    rail.scrollLeft += event.deltaY;
+  }, { passive: false });
+}
+
+setupRailDragScroll(elements.vibeApprovedRail);
+setupRailDragScroll(elements.concertRail);
+bindRailScrubber(elements.vibeApprovedRail, elements.vibeApprovedScrubber);
+bindRailScrubber(elements.concertRail, elements.concertScrubber);
 
 function render() {
   const events = filteredEvents();
