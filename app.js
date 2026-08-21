@@ -14,7 +14,6 @@ const TYPE_COLORS = {
 
 const state = {
   events: [],
-  flyers: new Map(), // slug -> image url
   markers: new Map(),
   date: "all",
   types: new Set(),
@@ -28,8 +27,6 @@ const elements = {
   ageFilter: document.querySelector("#ageFilter"),
   clearFilters: document.querySelector("#clearFilters"),
   closeRail: document.querySelector("#closeRail"),
-  concertFlyerRail: document.querySelector("#concertFlyerRail"),
-  concertFlyerSection: document.querySelector("#concertFlyerSection"),
   dateFilter: document.querySelector("#dateFilter"),
   emptyReset: document.querySelector("#emptyReset"),
   emptyState: document.querySelector("#emptyState"),
@@ -46,8 +43,6 @@ const elements = {
   syncStatus: document.querySelector("#syncStatus"),
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
-  vibeFlyerRail: document.querySelector("#vibeFlyerRail"),
-  vibeFlyerSection: document.querySelector("#vibeFlyerSection"),
 };
 
 const map = L.map("map", {
@@ -167,8 +162,10 @@ function markerIcon(event) {
 
 function popupMarkup(event) {
   const ticketUrl = safeUrl(event.ticketUrl);
+  const flyerUrl = safeUrl(event.flyerUrl);
   const typeLabel = event.type.join(" / ");
   return `<article class="popup-card ${event.vibeApproved ? "approved" : ""}" style="--event-color:${colorFor(event.type[0])}">
+    ${flyerUrl ? `<img class="popup-flyer" src="${flyerUrl}" alt="${safeText(event.title)} flyer" loading="lazy" />` : ""}
     ${event.vibeApproved ? '<img class="popup-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
     <p class="popup-label">${safeText(typeLabel)} / ${safeText(formatFullDate(event.date))}</p>
     <h2>${safeText(event.title)}</h2>
@@ -207,8 +204,9 @@ function renderCards(events) {
   elements.eventList.innerHTML = events.map((event, index) => {
     const parts = dateParts(event.date);
     const typeLabel = event.type.join(" / ");
-    return `<button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
-      <span class="card-date">${parts.day}<small>${parts.month}</small></span>
+    const flyerUrl = safeUrl(event.flyerUrl);
+    return `<button class="event-card ${state.selectedId === event.id ? "active" : ""} ${flyerUrl ? "has-flyer" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
+      ${flyerUrl ? `<span class="card-flyer" style="background-image:url('${flyerUrl}')" aria-hidden="true"></span>` : `<span class="card-date">${parts.day}<small>${parts.month}</small></span>`}
       <span>
         <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
@@ -229,46 +227,6 @@ function renderKey(events) {
   elements.mapKey.innerHTML = types.map((type) =>
     `<span class="key-item"><span class="key-dot" style="background:${colorFor(type)}"></span>${safeText(type)}</span>`,
   ).join("");
-}
-
-// --- Flyer rails -----------------------------------------------------
-// Clicking a flyer opens its ticket link in a new tab. This is
-// deliberately unaffected by the filter bar: it's a browse surface for
-// "what's got a flyer uploaded", not a filtered results view.
-
-function flyerCardMarkup(event, url) {
-  const ticketUrl = safeUrl(event.ticketUrl);
-  return `<a class="flyer-card" href="${ticketUrl || "#"}" target="_blank" rel="noopener noreferrer" style="--event-color:${colorFor(event.type[0])}">
-    <img src="${safeText(url)}" alt="${safeText(event.title)} flyer" loading="lazy" />
-    <span class="flyer-card-meta">
-      <strong>${safeText(event.title)}</strong>
-      <span>${safeText(formatFilterDate(event.date))} · ${safeText(event.location)}</span>
-    </span>
-  </a>`;
-}
-
-function renderFlyerRail(railElement, sectionElement, events) {
-  if (!railElement || !sectionElement) return;
-
-  const cards = events
-    .map((event) => ({ event, url: state.flyers.get(event.slug) }))
-    .filter((entry) => Boolean(entry.url));
-
-  sectionElement.hidden = cards.length === 0;
-  railElement.innerHTML = cards.map(({ event, url }) => flyerCardMarkup(event, url)).join("");
-}
-
-function renderFlyerRails() {
-  renderFlyerRail(
-    elements.vibeFlyerRail,
-    elements.vibeFlyerSection,
-    state.events.filter((event) => event.vibeApproved),
-  );
-  renderFlyerRail(
-    elements.concertFlyerRail,
-    elements.concertFlyerSection,
-    state.events.filter((event) => event.type.includes("Concert")),
-  );
 }
 
 function render() {
@@ -406,37 +364,19 @@ function setLoading(isLoading) {
   elements.refreshButton.disabled = isLoading;
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.error || `Unable to load ${url}`);
-  return payload;
-}
-
-async function loadFlyers() {
-  try {
-    const payload = await fetchJson("/api/flyers");
-    state.flyers = new Map((payload.flyers || []).map((flyer) => [flyer.slug, flyer.url]));
-  } catch (error) {
-    // Flyers are a bonus feature — if the Drive folder isn't configured
-    // yet, or the lookup fails, the rest of the app should still work.
-    console.error("Flyer feed unavailable:", error.message);
-    state.flyers = new Map();
-  }
-}
-
 async function loadEvents() {
   setLoading(true);
   elements.syncStatus.classList.remove("error");
   elements.syncStatus.lastElementChild.textContent = "Reading the guest list";
 
   try {
-    const [eventsPayload] = await Promise.all([fetchJson("/api/events"), loadFlyers()]);
+    const response = await fetch("/api/events", { headers: { Accept: "application/json" }, cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Unable to load events");
 
-    state.events = Array.isArray(eventsPayload.events) ? eventsPayload.events : [];
+    state.events = Array.isArray(payload.events) ? payload.events : [];
     populateFilters();
     render();
-    renderFlyerRails();
     elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
   } catch (error) {
     elements.syncStatus.classList.add("error");
@@ -468,23 +408,5 @@ mapElement.addEventListener("touchstart", updatePinchState, { passive: true });
 mapElement.addEventListener("touchmove", updatePinchState, { passive: true });
 mapElement.addEventListener("touchend", updatePinchState, { passive: true });
 mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-pinching"), { passive: true });
-
-const vibeInfoButton = document.querySelector("#vibeApprovedInfo");
-const vibeInfoTooltip = document.querySelector("#vibeApprovedTooltip");
-
-if (vibeInfoButton && vibeInfoTooltip) {
-  vibeInfoButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const isOpen = vibeInfoTooltip.classList.toggle("is-visible");
-    vibeInfoButton.classList.toggle("is-open", isOpen);
-    vibeInfoButton.setAttribute("aria-expanded", String(isOpen));
-  });
-
-  document.addEventListener("click", () => {
-    vibeInfoTooltip.classList.remove("is-visible");
-    vibeInfoButton.classList.remove("is-open");
-    vibeInfoButton.setAttribute("aria-expanded", "false");
-  });
-}
 
 loadEvents();
