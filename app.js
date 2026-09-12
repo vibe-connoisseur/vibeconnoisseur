@@ -63,13 +63,13 @@ const map = L.map("map", {
   attributionControl: true,
 }).setView(LONDON_CENTER, 11);
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png?key=cb1_3iig_1_6ba0b59ce226c79612dcb36b", {
   attribution: "&copy; OpenStreetMap &copy; CARTO",
   maxZoom: 20,
   subdomains: "abcd",
 }).addTo(map);
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png?key=cb1_3iig_1_6ba0b59ce226c79612dcb36b", {
   maxZoom: 20,
   subdomains: "abcd",
   pane: "shadowPane",
