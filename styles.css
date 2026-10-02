@@ -199,24 +199,24 @@ a:focus-visible {
 @keyframes pulse { 50% { opacity: 0.38; transform: scale(0.72); } }
 
 .flyer-showcase {
-  padding: 34px 0 6px;
+  padding: 24px 0 4px;
   border-bottom: 1px solid var(--line);
 }
 
 .flyer-showcase-title {
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 28px;
+  font-size: 22px;
   letter-spacing: -0.03em;
   text-transform: uppercase;
 }
 
 .flyer-rail {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   overflow-x: auto;
-  padding-bottom: 22px;
+  padding-bottom: 18px;
   scrollbar-color: #5c5e55 transparent;
   scrollbar-width: thin;
   -webkit-overflow-scrolling: touch;
@@ -274,7 +274,7 @@ a:focus-visible {
 
 .flyer-card {
   position: relative;
-  flex: 0 0 300px;
+  flex: 0 0 220px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
@@ -292,7 +292,7 @@ a:focus-visible {
 
 .flyer-card-image {
   position: relative;
-  height: 300px;
+  height: 220px;
   background-color: var(--panel-raised);
   background-size: contain;
   background-repeat: no-repeat;
@@ -308,8 +308,8 @@ a:focus-visible {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   object-fit: cover;
   transform: rotate(5deg);
@@ -319,7 +319,7 @@ a:focus-visible {
 .flyer-card-body {
   display: flex;
   flex-direction: column;
-  padding: 10px 14px 14px;
+  padding: 9px 11px 11px;
 }
 
 .flyer-card-type {
@@ -850,9 +850,12 @@ footer {
 
 @media (max-width: 760px) {
   .app-shell { padding: 0 15px; }
-  .flyer-showcase { padding: 24px 0 4px; }
-  .flyer-showcase-title { font-size: 22px; margin-bottom: 14px; }
-  .flyer-card { flex: 0 0 240px; }
+  .flyer-showcase { padding: 18px 0 2px; }
+  .flyer-showcase-title { font-size: 18px; margin-bottom: 10px; }
+  .flyer-rail { gap: 10px; padding-bottom: 14px; }
+  .flyer-card { flex: 0 0 170px; }
+  .flyer-card-image { height: 170px; }
+  .flyer-card h3 { font-size: 12px; }
   .flyer-rail-scrubber { display: none; }
   .site-header { min-height: 72px; }
   .wordmark { gap: 9px; }
