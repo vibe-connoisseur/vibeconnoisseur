@@ -12,12 +12,17 @@ type SheetEvent = {
   vibeApproved: boolean;
   latitude: number;
   longitude: number;
+  approximateLocation: boolean;
   tags: string[];
+  flyerImageUrl: string;
+  flyerUrl: string;
 };
+
+type SkippedRow = { row: number; title: string; reason: string };
 
 type PostcodeResult = {
   query: string;
-  result: { latitude: number; longitude: number } | null;
+  result: { latitude: number | null; longitude: number | null } | null;
 };
 
 const DEFAULT_SHEET_URL =
@@ -82,13 +87,21 @@ function normalizeHeader(value: string): string {
 
 function normalizeDate(value: string): string {
   const match = value.trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-  if (!match) return value;
+  if (!match) return "";
   const [, day, month, year] = match;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
+// Always returns "OUTCODE INCODE" with a single space, so "SW96LH",
+// "sw9 6lh" and "SW9  6LH" all match the same lookup key.
+function normalizePostcode(value: string): string {
+  const compact = value.toUpperCase().replace(/\s+/g, "");
+  return compact.length > 3 ? `${compact.slice(0, -3)} ${compact.slice(-3)}` : compact;
+}
+
 function extractPostcode(value: string): string {
-  return value.toUpperCase().match(/([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/)?.[1].replace(/\s+/g, " ") || "";
+  const match = value.toUpperCase().match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/);
+  return match ? normalizePostcode(match[1]) : "";
 }
 
 function regionFromPostcode(postcode: string): string {
@@ -104,13 +117,34 @@ function isYes(value = ""): boolean {
   return ["yes", "y", "true", "1"].includes(value.trim().toLowerCase());
 }
 
-function safeTicketUrl(value: string): string {
+function safeUrl(value: string): string {
   try {
-    const url = new URL(value);
+    const url = new URL(value.trim());
     return ["http:", "https:"].includes(url.protocol) ? url.href : "";
   } catch {
     return "";
   }
+}
+
+// Converts Google Drive share links (file/d/, open?id=, uc?id=) and Dropbox
+// share links into direct image URLs that can be embedded in the flyer rails.
+function toDirectImageUrl(value: string): string {
+  const url = safeUrl(value);
+  if (!url) return "";
+
+  const driveId =
+    url.match(/drive\.google\.com\/file\/d\/([\w-]+)/)?.[1] ||
+    url.match(/drive\.google\.com\/(?:open|uc)\?(?:.*&)?id=([\w-]+)/)?.[1];
+  if (driveId) return `https://lh3.googleusercontent.com/d/${driveId}=w1000`;
+
+  if (/(^|\.)dropbox\.com$/.test(new URL(url).hostname)) {
+    const dropbox = new URL(url);
+    dropbox.searchParams.delete("dl");
+    dropbox.searchParams.set("raw", "1");
+    return dropbox.href;
+  }
+
+  return url;
 }
 
 function parseTags(value: string): string[] {
@@ -136,39 +170,86 @@ function fallbackForLocation(location: string): { postcode: string; latitude: nu
   return null;
 }
 
-async function geocodePostcodes(postcodes: string[]): Promise<Map<string, [number, number]>> {
+// postcodes.io's bulk lookup endpoint rejects requests over 100 postcodes,
+// so lookups are chunked to keep every event geocoded regardless of sheet size.
+const POSTCODES_IO_BATCH_LIMIT = 100;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
+async function geocodeOutcode(outcode: string): Promise<[number, number] | null> {
+  try {
+    const response = await fetch(`https://api.postcodes.io/outcodes/${encodeURIComponent(outcode)}`);
+    if (!response.ok) return null;
+    const body = await response.json() as { result?: { latitude: number | null; longitude: number | null } };
+    const lat = body.result?.latitude;
+    const lng = body.result?.longitude;
+    return typeof lat === "number" && typeof lng === "number" ? [lat, lng] : null;
+  } catch {
+    return null;
+  }
+}
+
+async function geocodePostcodes(postcodes: string[]): Promise<{
+  coordinates: Map<string, [number, number]>;
+  approximate: Set<string>;
+}> {
   const uniquePostcodes = [...new Set(postcodes.filter(Boolean))];
   const coordinates = new Map<string, [number, number]>();
+  const approximate = new Set<string>();
 
-  if (uniquePostcodes.length) {
+  await Promise.all(chunk(uniquePostcodes, POSTCODES_IO_BATCH_LIMIT).map(async (batch) => {
     try {
       const response = await fetch("https://api.postcodes.io/postcodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postcodes: uniquePostcodes }),
+        body: JSON.stringify({ postcodes: batch }),
       });
 
       if (response.ok) {
         const body = await response.json() as { result?: PostcodeResult[] };
         for (const item of body.result || []) {
-          if (item.result) coordinates.set(item.query, [item.result.latitude, item.result.longitude]);
+          const lat = item.result?.latitude;
+          const lng = item.result?.longitude;
+          if (typeof lat === "number" && typeof lng === "number") {
+            coordinates.set(normalizePostcode(item.query), [lat, lng]);
+          }
         }
+      } else {
+        console.error(`Postcode batch lookup returned ${response.status} for ${batch.length} postcodes`);
       }
     } catch (error) {
       console.error("Postcode lookup failed", error instanceof Error ? error.message : "Unknown error");
     }
-  }
+  }));
 
   for (const postcode of uniquePostcodes) {
     if (!coordinates.has(postcode) && KNOWN_COORDINATES[postcode]) coordinates.set(postcode, KNOWN_COORDINATES[postcode]);
   }
 
-  return coordinates;
+  // Brand-new venues (new builds, recently opened arenas) often have postcodes
+  // that postcodes.io does not know yet. Instead of dropping the event, place
+  // it at the centre of its postcode district (e.g. "W14") and flag it.
+  const missing = uniquePostcodes.filter((postcode) => !coordinates.has(postcode));
+  await Promise.all(missing.map(async (postcode) => {
+    const position = await geocodeOutcode(postcode.split(" ")[0]);
+    if (position) {
+      coordinates.set(postcode, position);
+      approximate.add(postcode);
+      console.warn(`Postcode ${postcode} not found; using district centre instead`);
+    }
+  }));
+
+  return { coordinates, approximate };
 }
 
 export default async (request: Request) => {
   if (request.method !== "GET") return Response.json({ error: "Method not allowed" }, { status: 405 });
 
+  const debug = new URL(request.url).searchParams.has("debug");
   const sheetUrl = Netlify.env.get("GOOGLE_SHEET_CSV_URL") || DEFAULT_SHEET_URL;
 
   try {
@@ -179,55 +260,114 @@ export default async (request: Request) => {
     if (rows.length < 2) return Response.json({ events: [], updatedAt: new Date().toISOString() });
 
     const headers = rows[0].map(normalizeHeader);
-    const records = rows.slice(1).map((values) =>
-      Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])),
-    );
+    const flyerKey = headers.find((header) => header.includes("flyer")) || "flyer_image_url";
 
-    const recordPostcodes = records.map((record) => extractPostcode(record.location));
-    const coordinates = await geocodePostcodes(recordPostcodes.filter(Boolean));
+    // row = the row number as shown in Google Sheets (row 1 is the header).
+    const allRecords = rows.slice(1).map((values, position) => ({
+      row: position + 2,
+      record: Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])) as Record<string, string>,
+    }));
+
+    const skipped: SkippedRow[] = [];
+
+    // Only rows marked Approved reach the app. New form submissions land
+    // in a separate tab, so they're invisible here until copied over
+    // with Approved = Yes.
+    const records = allRecords.filter(({ row, record }) => {
+      if (isYes(record.approved)) return true;
+      skipped.push({ row, title: record.title || "(no title)", reason: "Approved is not Yes" });
+      return false;
+    });
+
+    const recordPostcodes = records.map(({ record }) => extractPostcode(record.location || ""));
+    const { coordinates, approximate } = await geocodePostcodes(recordPostcodes);
     const today = new Date().toISOString().slice(0, 10);
+    const seen = new Map<string, number>();
+    const events: SheetEvent[] = [];
 
-    const events = records.map((record, index): SheetEvent | null => {
+    records.forEach(({ row, record }, index) => {
+      const title = (record.title || "").trim();
+      const location = (record.location || "").trim();
+      const skip = (reason: string) => skipped.push({ row, title: title || "(no title)", reason });
+
+      if (!title) return skip("Missing title");
+      if (!location) return skip("Missing location");
+
+      const date = normalizeDate(record.date || "");
+      if (!date) return skip(`Date "${record.date}" is not in DD/MM/YYYY format`);
+      if (date < today) return skip("Date has passed");
+
       let postcode = recordPostcodes[index];
       let position = postcode ? coordinates.get(postcode) : undefined;
+      let isApproximate = postcode ? approximate.has(postcode) : false;
       let region = postcode ? regionFromPostcode(postcode) : "";
 
-      if (!position || !region) {
-        const fallback = fallbackForLocation(record.location);
-        if (fallback) {
-          postcode = fallback.postcode;
-          position = [fallback.latitude, fallback.longitude];
-          region = regionFromPostcode(fallback.postcode);
-        }
+      const textFallback = fallbackForLocation(location);
+
+      // Only use the general-area fallback when the row has no usable
+      // position of its own. A real, geocoded postcode is never overwritten.
+      if (!position && textFallback) {
+        position = [textFallback.latitude, textFallback.longitude];
+        isApproximate = true;
+        if (!postcode) postcode = textFallback.postcode;
+      }
+      if (!region && textFallback) region = regionFromPostcode(textFallback.postcode);
+      if (!region && position) region = "London";
+
+      if (!position) {
+        return skip(postcode
+          ? `Postcode ${postcode} could not be found`
+          : "No postcode in Location and no London area mentioned");
       }
 
-      const date = normalizeDate(record.date);
-      if (!record.title || !date || !record.location || !position || !region) return null;
+      const duplicateKey = `${title.toLowerCase()}|${date}|${(postcode || location).toLowerCase()}`;
+      const firstRow = seen.get(duplicateKey);
+      if (firstRow) return skip(`Duplicate of row ${firstRow}`);
+      seen.set(duplicateKey, row);
 
-      return {
-        id: `${record.title}-${date}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-        title: record.title,
+      const flyerImageUrl = toDirectImageUrl(record[flyerKey] || "");
+
+      events.push({
+        id: `${title}-${date}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+        title,
         type: splitTypes(record.type_of_event || "Other"),
         date,
-        location: record.location,
+        location,
         postcode,
         region,
         ageRange: record.age_range || "All ages",
         price: record.tickets_from || "See tickets",
-        ticketUrl: safeTicketUrl(record.ticket_link),
+        ticketUrl: safeUrl(record.ticket_link || ""),
         vibeApproved: isYes(record.vibe_approved),
         latitude: position[0],
         longitude: position[1],
+        approximateLocation: isApproximate,
         tags: parseTags(record.additional_tags || ""),
-      };
-    }).filter((event): event is SheetEvent => event !== null)
-      .filter((event) => event.date >= today)
-      .sort((first, second) => first.date.localeCompare(second.date));
+        flyerImageUrl,
+        flyerUrl: flyerImageUrl,
+      });
+    });
 
-    return Response.json(
-      { events, updatedAt: new Date().toISOString() },
-      { headers: { "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=600" } },
-    );
+    events.sort((first, second) => first.date.localeCompare(second.date));
+
+    const problems = skipped.filter((item) => item.reason !== "Date has passed" && item.reason !== "Approved is not Yes");
+    if (problems.length) console.warn("Rows skipped:", JSON.stringify(problems));
+
+    const payload: Record<string, unknown> = {
+      events,
+      updatedAt: new Date().toISOString(),
+      rowsInSheet: allRecords.length,
+      skippedCount: skipped.length,
+    };
+    if (debug) payload.skipped = skipped;
+
+    return Response.json(payload, {
+      headers: {
+        "Cache-Control": debug
+          ? "no-store"
+          : "public, max-age=60, s-maxage=300, stale-while-revalidate=600",
+      },
+    });
   } catch (error) {
     console.error("Unable to read the event sheet", error instanceof Error ? error.message : "Unknown error");
     return Response.json({ error: "The event sheet could not be loaded right now." }, { status: 502 });
