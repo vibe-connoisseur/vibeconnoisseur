@@ -9,7 +9,6 @@ type SheetEvent = {
   ageRange: string;
   price: string;
   ticketUrl: string;
-  flyerUrl: string;
   vibeApproved: boolean;
   latitude: number;
   longitude: number;
@@ -105,47 +104,13 @@ function isYes(value = ""): boolean {
   return ["yes", "y", "true", "1"].includes(value.trim().toLowerCase());
 }
 
-// Shared validator for any field that should be a safe, absolute http(s) URL
-// — used for both ticket links and flyer image links so a malformed or
-// javascript: URL in the sheet can never leak into the rendered page.
-function safeAbsoluteUrl(value: string): string {
+function safeTicketUrl(value: string): string {
   try {
     const url = new URL(value);
     return ["http:", "https:"].includes(url.protocol) ? url.href : "";
   } catch {
     return "";
   }
-}
-
-// People paste whatever share link their phone gives them, which is
-// usually a "viewer page" link rather than a raw image link, so those
-// need rewriting into a direct-image form before the <img> tag can use
-// them. Recognises Google Drive's "file/d/<id>/view" and "open?id=<id>"
-// share links, and Dropbox's "?dl=0" links, and converts each to a
-// direct-image URL. Anything else (Imgur, direct CDN links, etc.) is
-// already a raw link and passes through untouched.
-//
-// Drive links use the lh3.googleusercontent.com host rather than
-// drive.google.com/uc?export=view — the uc?export=view form frequently
-// gets blocked by Google when loaded as an embedded <img> (even though
-// it opens fine as a standalone page), while the lh3 host is the same
-// underlying file served in the format Google's own apps use for
-// thumbnails/embeds, and is far more reliable for this use case.
-function toDirectImageUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-
-  const driveFileMatch = trimmed.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-  if (driveFileMatch) return `https://lh3.googleusercontent.com/d/${driveFileMatch[1]}=w1000`;
-
-  const driveOpenMatch = trimmed.match(/drive\.google\.com\/open\?id=([^&]+)/);
-  if (driveOpenMatch) return `https://lh3.googleusercontent.com/d/${driveOpenMatch[1]}=w1000`;
-
-  if (trimmed.includes("dropbox.com") && trimmed.includes("dl=0")) {
-    return trimmed.replace("dl=0", "raw=1");
-  }
-
-  return trimmed;
 }
 
 function parseTags(value: string): string[] {
@@ -171,31 +136,16 @@ function fallbackForLocation(location: string): { postcode: string; latitude: nu
   return null;
 }
 
-// postcodes.io's bulk lookup endpoint rejects requests over 100 postcodes
-// (returns 400), so once the sheet grows past ~100 unique venues a single
-// request silently fails and no events beyond the KNOWN_COORDINATES /
-// REGION_FALLBACKS safety nets get a position. Chunking keeps every
-// approved event geocoded regardless of sheet size.
-const POSTCODES_IO_BATCH_LIMIT = 100;
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
-  return chunks;
-}
-
 async function geocodePostcodes(postcodes: string[]): Promise<Map<string, [number, number]>> {
   const uniquePostcodes = [...new Set(postcodes.filter(Boolean))];
   const coordinates = new Map<string, [number, number]>();
 
-  const batches = chunk(uniquePostcodes, POSTCODES_IO_BATCH_LIMIT);
-
-  await Promise.all(batches.map(async (batch) => {
+  if (uniquePostcodes.length) {
     try {
       const response = await fetch("https://api.postcodes.io/postcodes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postcodes: batch }),
+        body: JSON.stringify({ postcodes: uniquePostcodes }),
       });
 
       if (response.ok) {
@@ -203,13 +153,11 @@ async function geocodePostcodes(postcodes: string[]): Promise<Map<string, [numbe
         for (const item of body.result || []) {
           if (item.result) coordinates.set(item.query, [item.result.latitude, item.result.longitude]);
         }
-      } else {
-        console.error(`Postcode batch lookup returned ${response.status} for ${batch.length} postcodes`);
       }
     } catch (error) {
       console.error("Postcode lookup failed", error instanceof Error ? error.message : "Unknown error");
     }
-  }));
+  }
 
   for (const postcode of uniquePostcodes) {
     if (!coordinates.has(postcode) && KNOWN_COORDINATES[postcode]) coordinates.set(postcode, KNOWN_COORDINATES[postcode]);
@@ -231,14 +179,9 @@ export default async (request: Request) => {
     if (rows.length < 2) return Response.json({ events: [], updatedAt: new Date().toISOString() });
 
     const headers = rows[0].map(normalizeHeader);
-    const allRecords = rows.slice(1).map((values) =>
+    const records = rows.slice(1).map((values) =>
       Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])),
     );
-
-    // Only rows marked Approved reach the app. New form submissions land
-    // in a separate tab, so they're invisible here until copied over
-    // with Approved = Yes.
-    const records = allRecords.filter((record) => isYes(record.approved));
 
     const recordPostcodes = records.map((record) => extractPostcode(record.location));
     const coordinates = await geocodePostcodes(recordPostcodes.filter(Boolean));
@@ -271,13 +214,7 @@ export default async (request: Request) => {
         region,
         ageRange: record.age_range || "All ages",
         price: record.tickets_from || "See tickets",
-        ticketUrl: safeAbsoluteUrl(record.ticket_link),
-        // Reads a "Flyer Image URL" column from the sheet (normalized header:
-        // flyer_image_url). Leave the cell blank for events with no flyer —
-        // the app just skips the image, no slug or filename matching needed.
-        // Whatever share link was pasted (Drive, Dropbox, or already-direct)
-        // gets normalised to a direct-image URL before it's validated.
-        flyerUrl: safeAbsoluteUrl(toDirectImageUrl(record.flyer_image_url || record.flyer || "")),
+        ticketUrl: safeTicketUrl(record.ticket_link),
         vibeApproved: isYes(record.vibe_approved),
         latitude: position[0],
         longitude: position[1],
