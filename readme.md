@@ -30,3 +30,24 @@ netlify dev --port 8889
 - `styles.css` contains the responsive dark editorial design.
 - `app.js` renders the map, event cards, popups, and filters.
 - `netlify/functions/events.mts` reads the sheet and geocodes each event.
+
+## Stripe payments and Vibe Approved
+
+`netlify/functions/stripe-webhook.mts` (served at `/api/stripe-webhook`) receives Stripe `checkout.session.completed` events from the TVC Payment Links, verifies the Stripe signature, and forwards each paid session to `google-apps-script/payments.gs`, a web app attached to the tracker sheet. The script:
+
+- logs every payment in a **Payments** tab (date, amount, customer, event, items, live or test),
+- sets **Vibe Approved = Yes** on the matching tracker row when Vibe Approved was bought (alone or as an extra), so the badge shows on the map within a few minutes,
+- emails the sheet owner for every payment, with "Action needed" when it could not match the event name.
+
+Matching uses the buyer's "Event name" and "Event date" checkout fields against the tracker's Title and Date columns. Duplicate Stripe deliveries are ignored. If the sheet call fails, the function returns an error so Stripe retries for up to three days.
+
+Netlify environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_...`) of the Stripe webhook endpoint |
+| `STRIPE_SECRET_KEY` | Restricted key with read access to Checkout Sessions, Products and Prices (needed to spot Vibe Approved added as an extra) |
+| `SHEETS_WEBHOOK_URL` | Apps Script web app URL ending in `/exec` |
+| `SHEETS_WEBHOOK_SECRET` | Shared secret, also saved as the `WEBHOOK_SECRET` script property |
+
+Apps Script setup: in the tracker sheet open Extensions > Apps Script, paste `payments.gs`, add the script property `WEBHOOK_SECRET`, run `testRecordPayment` once to grant permissions, then Deploy > New deployment > Web app, execute as Me, access Anyone. Use the `/exec` URL as `SHEETS_WEBHOOK_URL`.
