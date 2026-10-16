@@ -18,6 +18,13 @@ const PAYMENT_HEADERS = [
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
+    // Flyer uploads from Claude's Event Inbox task use their own secret (FLYER_SECRET).
+    if (body.action === 'uploadFlyer') {
+      const flyerSecret = PropertiesService.getScriptProperties().getProperty('FLYER_SECRET');
+      if (!flyerSecret || body.secret !== flyerSecret) return json_({ ok: false, error: 'unauthorised' });
+      return json_(uploadFlyer_(body));
+    }
+
     const expected = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
     if (!expected || body.secret !== expected) return json_({ ok: false, error: 'unauthorised' });
 
@@ -156,6 +163,25 @@ function sameDay_(cell, date) {
   const value = cell instanceof Date ? cell : parseDate_(cell);
   return Boolean(value) && value.getFullYear() === date.getFullYear() &&
     value.getMonth() === date.getMonth() && value.getDate() === date.getDate();
+}
+
+// Only these Drive folders can receive uploads: TVC Event Flyers and
+// Vibe Approved & Concert Flyers. Both are shared by link, so the map can show them.
+const FLYER_FOLDERS = ['1mFTJoHZrv3AthYslDpbq8Wo6OuHjU7w0', '17ZC2XJHXo8bBaSpHdziZUNcliPdGbsqK'];
+
+function uploadFlyer_(body) {
+  if (FLYER_FOLDERS.indexOf(body.folderId) === -1) return { ok: false, error: 'folder not allowed' };
+  const mime = body.mimeType || 'image/jpeg';
+  if (!/^image\/(jpeg|png|webp)$/.test(mime)) return { ok: false, error: 'images only' };
+  const bytes = Utilities.base64Decode(body.base64 || '');
+  if (!bytes.length || bytes.length > 8 * 1024 * 1024) return { ok: false, error: 'empty or over 8 MB' };
+  const name = String(body.name || 'flyer.jpg').replace(/[\\/:*?"<>|]/g, '-').slice(0, 150);
+  const file = DriveApp.getFolderById(body.folderId).createFile(Utilities.newBlob(bytes, mime, name));
+  return {
+    ok: true,
+    id: file.getId(),
+    url: 'https://drive.google.com/file/d/' + file.getId() + '/view?usp=drivesdk',
+  };
 }
 
 function json_(object) {
