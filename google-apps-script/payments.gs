@@ -31,6 +31,8 @@ function doPost(e) {
     const lock = LockService.getScriptLock();
     lock.waitLock(20000);
     try {
+      // Newsletter sign-ups from the pop-up on Where's The Vibe (/api/subscribe).
+      if (body.action === 'subscribe') return json_(recordSubscriber_(body.subscriber || {}));
       return json_(recordPayment_(body.payment));
     } finally {
       lock.releaseLock();
@@ -182,6 +184,41 @@ function uploadFlyer_(body) {
     id: file.getId(),
     url: 'https://drive.google.com/file/d/' + file.getId() + '/view?usp=drivesdk',
   };
+}
+
+// Separate, private spreadsheet for newsletter emails, so subscriber
+// addresses never sit in the published tracker sheet.
+const SUBSCRIBERS_SHEET_ID = '1ePEB07EvPtfrhpfXS6jd5Zrd2DCfBAsQhJy9miXREDA';
+const SUBSCRIBER_HEADERS = ['Signed up', 'Email', 'Source', 'Page'];
+
+function recordSubscriber_(subscriber) {
+  const email = String(subscriber.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || email.length > 254) {
+    return { ok: false, error: 'invalid email' };
+  }
+
+  const sheet = SpreadsheetApp.openById(SUBSCRIBERS_SHEET_ID).getSheets()[0];
+  if (sheet.getLastRow() === 0) sheet.appendRow(SUBSCRIBER_HEADERS);
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, SUBSCRIBER_HEADERS.length).setFontWeight('bold');
+
+  const emailColumn = SUBSCRIBER_HEADERS.indexOf('Email') + 1;
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const existing = sheet.getRange(2, emailColumn, lastRow - 1, 1).getValues().flat()
+      .map(function (value) { return String(value).trim().toLowerCase(); });
+    if (existing.indexOf(email) !== -1) return { ok: true, status: 'already subscribed' };
+  }
+
+  sheet.appendRow([
+    new Date(), email, String(subscriber.source || 'popup').slice(0, 40), String(subscriber.page || '').slice(0, 200),
+  ]);
+  return { ok: true, status: 'subscribed' };
+}
+
+/** Run once from the editor to check the newsletter sheet is reachable. */
+function testRecordSubscriber() {
+  console.log(recordSubscriber_({ email: 'test+' + Date.now() + '@example.com', source: 'manual test', page: '' }));
 }
 
 function json_(object) {

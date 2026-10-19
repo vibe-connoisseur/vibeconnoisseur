@@ -51,3 +51,11 @@ Netlify environment variables:
 | `SHEETS_WEBHOOK_SECRET` | Shared secret, also saved as the `WEBHOOK_SECRET` script property |
 
 Apps Script setup: in the tracker sheet open Extensions > Apps Script, paste `payments.gs`, add the script property `WEBHOOK_SECRET`, run `testRecordPayment` once to grant permissions, then Deploy > New deployment > Web app, execute as Me, access Anyone. Use the `/exec` URL as `SHEETS_WEBHOOK_URL`.
+
+## Newsletter sign-up pop-up
+
+A pop-up asks visitors for their email six seconds after their first visit. Closing it hides it for 14 days; signing up hides it for good. A "Get the weekly newsletter" link in the footer reopens it.
+
+`netlify/functions/subscribe.mts` (served at `/api/subscribe`) validates the email, ignores bots that fill the hidden honeypot field, and forwards the address to the same Apps Script web app as the Stripe webhook, using the existing `SHEETS_WEBHOOK_URL` and `SHEETS_WEBHOOK_SECRET`. The script adds it to the private **Where's The Vibe Newsletter Subscribers** spreadsheet (Signed up, Email, Source, Page) and skips emails already on the list. Subscribers live in their own sheet so they never appear in the published tracker.
+
+After changing `payments.gs`, paste it into the Apps Script editor, run `testRecordSubscriber` once to grant access to the subscriber sheet, then Deploy > Manage deployments > Edit > Version: New version > Deploy. The web app URL stays the same.

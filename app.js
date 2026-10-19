@@ -519,4 +519,131 @@ mapElement.addEventListener("touchmove", updatePinchState, { passive: true });
 mapElement.addEventListener("touchend", updatePinchState, { passive: true });
 mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-pinching"), { passive: true });
 
+// Newsletter sign-up pop-up. Shows once a few seconds after the first visit.
+// Closing it hides it for 14 days; signing up hides it for good.
+const SIGNUP_DELAY_MS = 6000;
+const SIGNUP_SNOOZE_DAYS = 14;
+const SIGNUP_KEY = "wtv-newsletter";
+
+const signup = {
+  overlay: document.querySelector("#signupOverlay"),
+  form: document.querySelector("#signupFormEl"),
+  formPanel: document.querySelector("#signupForm"),
+  donePanel: document.querySelector("#signupDone"),
+  email: document.querySelector("#signupEmail"),
+  website: document.querySelector("#signupWebsite"),
+  submit: document.querySelector("#signupSubmit"),
+  error: document.querySelector("#signupError"),
+  close: document.querySelector("#signupClose"),
+  doneButton: document.querySelector("#signupDoneButton"),
+  openButton: document.querySelector("#openSignup"),
+  lastFocus: null,
+};
+
+function readSignupState() {
+  try {
+    return JSON.parse(localStorage.getItem(SIGNUP_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveSignupState(value) {
+  try {
+    localStorage.setItem(SIGNUP_KEY, JSON.stringify(value));
+  } catch {
+    // Private browsing or blocked storage: the pop-up may show again, which is fine.
+  }
+}
+
+function shouldAutoOpenSignup() {
+  const saved = readSignupState();
+  if (saved.subscribed) return false;
+  if (saved.dismissedAt && Date.now() - saved.dismissedAt < SIGNUP_SNOOZE_DAYS * 86400000) return false;
+  return true;
+}
+
+function openSignup() {
+  if (!signup.overlay.hidden) return;
+  signup.lastFocus = document.activeElement;
+  const subscribed = readSignupState().subscribed;
+  signup.formPanel.hidden = Boolean(subscribed);
+  signup.donePanel.hidden = !subscribed;
+  signup.overlay.hidden = false;
+  document.body.classList.add("signup-open");
+  closeAllDropdowns();
+  setTimeout(() => (subscribed ? signup.doneButton : signup.email).focus({ preventScroll: true }), 50);
+}
+
+function closeSignup() {
+  if (signup.overlay.hidden) return;
+  signup.overlay.hidden = true;
+  document.body.classList.remove("signup-open");
+  const saved = readSignupState();
+  if (!saved.subscribed) saveSignupState({ ...saved, dismissedAt: Date.now() });
+  signup.lastFocus?.focus?.({ preventScroll: true });
+}
+
+function showSignupError(message) {
+  signup.error.textContent = message;
+  signup.email.setAttribute("aria-invalid", message ? "true" : "false");
+}
+
+async function submitSignup(event) {
+  event.preventDefault();
+  const email = signup.email.value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+    showSignupError("Enter a valid email address.");
+    signup.email.focus();
+    return;
+  }
+
+  showSignupError("");
+  signup.submit.disabled = true;
+  signup.submit.firstElementChild.textContent = "Adding you";
+
+  try {
+    const response = await fetch("/api/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, website: signup.website.value, source: "popup", page: location.pathname }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Could not save your email. Try again in a moment.");
+
+    saveSignupState({ subscribed: true, at: Date.now() });
+    signup.formPanel.hidden = true;
+    signup.donePanel.hidden = false;
+    signup.doneButton.focus({ preventScroll: true });
+    signup.form.reset();
+  } catch (error) {
+    showSignupError(error.message);
+  } finally {
+    signup.submit.disabled = false;
+    signup.submit.firstElementChild.textContent = "I'm in";
+  }
+}
+
+signup.form.addEventListener("submit", submitSignup);
+signup.email.addEventListener("input", () => { if (signup.error.textContent) showSignupError(""); });
+signup.close.addEventListener("click", closeSignup);
+signup.doneButton.addEventListener("click", closeSignup);
+signup.openButton.addEventListener("click", openSignup);
+signup.overlay.addEventListener("click", (event) => { if (event.target === signup.overlay) closeSignup(); });
+signup.overlay.addEventListener("click", (event) => event.stopPropagation());
+document.addEventListener("keydown", (event) => {
+  if (signup.overlay.hidden) return;
+  if (event.key === "Escape") closeSignup();
+  if (event.key === "Tab") {
+    const focusable = [...signup.overlay.querySelectorAll("button, input:not(.signup-honeypot)")]
+      .filter((node) => !node.closest("[hidden]") && !node.disabled);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
+
+if (shouldAutoOpenSignup()) setTimeout(openSignup, SIGNUP_DELAY_MS);
+
 loadEvents();
