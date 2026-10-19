@@ -54,7 +54,7 @@ Apps Script setup: in the tracker sheet open Extensions > Apps Script, paste `pa
 
 ## Newsletter sign-up pop-up
 
-A pop-up asks visitors for their email six seconds after their first visit. Closing it hides it for 14 days; signing up hides it for good. A "Get the weekly newsletter" link in the footer reopens it.
+A pop-up asks visitors for their email every time they open the site, about 1.5 seconds after the page loads. Only people who have signed up on that device stop seeing it. A "Get the weekly newsletter" link in the footer reopens it.
 
 `netlify/functions/subscribe.mts` (served at `/api/subscribe`) validates the email, ignores bots that fill the hidden honeypot field, and forwards the address to the same Apps Script web app as the Stripe webhook, using the existing `SHEETS_WEBHOOK_URL` and `SHEETS_WEBHOOK_SECRET`. The script adds it to the private **Where's The Vibe Newsletter Subscribers** spreadsheet (Signed up, Email, Source, Page) and skips emails already on the list. Subscribers live in their own sheet so they never appear in the published tracker.
 

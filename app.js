@@ -519,10 +519,9 @@ mapElement.addEventListener("touchmove", updatePinchState, { passive: true });
 mapElement.addEventListener("touchend", updatePinchState, { passive: true });
 mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-pinching"), { passive: true });
 
-// Newsletter sign-up pop-up. Shows once a few seconds after the first visit.
-// Closing it hides it for 14 days; signing up hides it for good.
-const SIGNUP_DELAY_MS = 6000;
-const SIGNUP_SNOOZE_DAYS = 14;
+// Newsletter sign-up pop-up. Shows on every visit, shortly after the page loads.
+// Only people who have already signed up on this device stop seeing it.
+const SIGNUP_DELAY_MS = 1500;
 const SIGNUP_KEY = "wtv-newsletter";
 
 const signup = {
@@ -558,9 +557,7 @@ function saveSignupState(value) {
 
 function shouldAutoOpenSignup() {
   const saved = readSignupState();
-  if (saved.subscribed) return false;
-  if (saved.dismissedAt && Date.now() - saved.dismissedAt < SIGNUP_SNOOZE_DAYS * 86400000) return false;
-  return true;
+  return !saved.subscribed;
 }
 
 function openSignup() {
@@ -579,8 +576,6 @@ function closeSignup() {
   if (signup.overlay.hidden) return;
   signup.overlay.hidden = true;
   document.body.classList.remove("signup-open");
-  const saved = readSignupState();
-  if (!saved.subscribed) saveSignupState({ ...saved, dismissedAt: Date.now() });
   signup.lastFocus?.focus?.({ preventScroll: true });
 }
 
