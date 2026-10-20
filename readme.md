@@ -59,3 +59,7 @@ A pop-up asks visitors for their email every time they open the site, about 1.5 
 `netlify/functions/subscribe.mts` (served at `/api/subscribe`) validates the email, ignores bots that fill the hidden honeypot field, and forwards the address to the same Apps Script web app as the Stripe webhook, using the existing `SHEETS_WEBHOOK_URL` and `SHEETS_WEBHOOK_SECRET`. The script adds it to the private **Where's The Vibe Newsletter Subscribers** spreadsheet (Signed up, Email, Source, Page) and skips emails already on the list. Subscribers live in their own sheet so they never appear in the published tracker.
 
 After changing `payments.gs`, paste it into the Apps Script editor, run `testRecordSubscriber` once to grant access to the subscriber sheet, then Deploy > Manage deployments > Edit > Version: New version > Deploy. The web app URL stays the same.
+
+## iPhone app
+
+The same code ships as an iPhone app through Capacitor, with Near me, saved events, reminders and native sharing added by `native.js`. `npm run build` copies the site into `www/`, and Codemagic (`codemagic.yaml`) builds and uploads it to TestFlight. See `APP-STORE.md` for setup and submission.

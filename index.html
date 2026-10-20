@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#11120f" />
     <meta name="description" content="Six standout events across London, mapped and filtered by date, type, and age." />
     <title>Vibe Connoisseur — London Event Map</title>
@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -94,6 +94,16 @@
               <span>Pinch to zoom</span>
             </div>
             <div class="map-key" id="mapKey" aria-label="Event type key"></div>
+            <div class="map-tools">
+              <button class="map-tool" id="nearMeButton" type="button" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v3m0 14v3M2 12h3m14 0h3" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="1.6" /></svg>
+                <span>Near me</span>
+              </button>
+              <button class="map-tool" id="savedButton" type="button" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z" /></svg>
+                <span>Saved</span><strong id="savedCount">0</strong>
+              </button>
+            </div>
             <button class="mobile-list-button" id="mobileListButton" type="button" aria-expanded="false">
               <span>Browse events</span><strong id="mobileCount">0</strong>
             </button>
@@ -101,7 +111,7 @@
 
           <aside class="event-rail" id="eventRail" aria-label="Matching events">
             <div class="rail-heading">
-              <p><span id="resultCount">0</span> selected</p>
+              <p><span id="resultCount">0</span> <span id="railTitle">selected</span></p>
               <button id="closeRail" type="button" aria-label="Close event list">Close</button>
             </div>
             <div class="event-list" id="eventList"></div>
@@ -110,7 +120,7 @@
 
         <section class="empty-state" id="emptyState" hidden>
           <span>No signal</span>
-          <h2>Nothing matches that combination.</h2>
+          <h2 id="emptyTitle">Nothing matches that combination.</h2>
           <button type="button" id="emptyReset">Clear the filters</button>
         </section>
       </main>
@@ -118,6 +128,7 @@
       <footer>
         <p>Made for plans that leave the group chat.</p>
         <p><button class="footer-signup" id="openSignup" type="button">Get the weekly newsletter</button></p>
+        <p><a class="footer-signup" href="privacy.html">Privacy</a></p>
       </footer>
     </div>
 
@@ -149,6 +160,7 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script src="app.js?v=8" defer></script>
+    <script src="native.js?v=1" defer></script>
+    <script src="app.js?v=9" defer></script>
   </body>
 </html>
