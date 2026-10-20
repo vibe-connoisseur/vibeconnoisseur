@@ -1,0 +1,24 @@
+{
+  "appId": "com.vibeconnoisseur.wheresthevibe",
+  "appName": "Where's The Vibe",
+  "webDir": "www",
+  "backgroundColor": "#11120f",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#11120f"
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "launchShowDuration": 0,
+      "backgroundColor": "#11120f",
+      "showSpinner": false
+    },
+    "LocalNotifications": {
+      "iconColor": "#d7f25a"
+    }
+  }
+}

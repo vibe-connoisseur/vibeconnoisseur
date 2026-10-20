@@ -21,7 +21,20 @@ const state = {
   regions: new Set(),
   search: "",
   selectedId: null,
+  saved: new Map(),
+  savedOnly: false,
+  userPosition: null,
+  nearMe: false,
+  offline: false,
 };
+
+const native = window.VibeNative || {
+  isNative: false, apiBase: "", siteUrl: location.origin, haptic() {}, async getPosition() { throw new Error("Location is not available"); },
+  storage: { async get() { return null; }, async set() {} }, async scheduleReminders() { return false; }, async cancelReminders() {},
+  onReminderTap() {}, async share() { return "cancelled"; }, openUrl(url) { window.open(url, "_blank", "noopener"); }, appReady() {},
+};
+const SAVED_KEY = "wtv-saved-events";
+const CACHE_KEY = "wtv-events-cache";
 
 const elements = {
   ageFilter: document.querySelector("#ageFilter"),
@@ -38,6 +51,11 @@ const elements = {
   locationToggle: document.querySelector("#locationFilterToggle"),
   locationPanel: document.querySelector("#locationFilterPanel"),
   mapKey: document.querySelector("#mapKey"),
+  nearMeButton: document.querySelector("#nearMeButton"),
+  savedButton: document.querySelector("#savedButton"),
+  savedCount: document.querySelector("#savedCount"),
+  railTitle: document.querySelector("#railTitle"),
+  emptyTitle: document.querySelector("#emptyTitle"),
   mobileCount: document.querySelector("#mobileCount"),
   mobileListButton: document.querySelector("#mobileListButton"),
   refreshButton: document.querySelector("#refreshButton"),
@@ -129,6 +147,44 @@ function slugify(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+function eventKey(event) {
+  return `${slugify(event.title)}-${event.date}`;
+}
+
+function isSaved(event) {
+  return state.saved.has(eventKey(event));
+}
+
+function todayString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function distanceKm(event) {
+  if (!state.userPosition) return null;
+  const toRad = (value) => (value * Math.PI) / 180;
+  const dLat = toRad(event.latitude - state.userPosition.lat);
+  const dLng = toRad(event.longitude - state.userPosition.lng);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(state.userPosition.lat)) * Math.cos(toRad(event.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(km) {
+  if (km === null) return "";
+  const miles = km * 0.621371;
+  return miles < 0.1 ? "Right here" : `${miles < 10 ? miles.toFixed(1) : Math.round(miles)} mi`;
+}
+
+function savedEvents() {
+  const today = todayString();
+  const live = new Map(state.events.map((event) => [eventKey(event), event]));
+  return [...state.saved.entries()]
+    .map(([key, stored]) => live.get(key) || stored)
+    .filter((event) => event.date >= today)
+    .sort((first, second) => first.date.localeCompare(second.date));
+}
+
 function matchesSearch(event, query) {
   if (!query) return true;
   const haystack = [
@@ -143,6 +199,14 @@ function matchesSearch(event, query) {
 }
 
 function filteredEvents() {
+  const events = state.savedOnly ? savedEvents() : baseFilteredEvents();
+  if (state.nearMe && state.userPosition) {
+    return [...events].sort((first, second) => distanceKm(first) - distanceKm(second));
+  }
+  return events;
+}
+
+function baseFilteredEvents() {
   const query = state.search.trim().toLowerCase();
   return state.events.filter((event) => {
     const matchesDate = state.date === "all" || event.date === state.date;
@@ -176,11 +240,15 @@ function popupMarkup(event) {
     <p class="popup-meta">${safeText(event.location)}</p>
     <div class="popup-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
     ${event.tags?.length ? `<div class="popup-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</div>` : ""}
+    <div class="popup-actions">
+      <button type="button" class="popup-action ${isSaved(event) ? "is-saved" : ""}" data-action="save" data-event-id="${safeText(event.id)}">${isSaved(event) ? "Saved" : "Save"}</button>
+      <button type="button" class="popup-action" data-action="share" data-event-id="${safeText(event.id)}">Share</button>
+    </div>
     ${ticketUrl ? `<a class="popup-link" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Get tickets</span><span>↗</span></a>` : ""}
   </article>`;
 }
 
-function renderMap(events) {
+function renderMap(events, keepView = false) {
   state.markers.forEach((marker) => marker.remove());
   state.markers.clear();
 
@@ -191,11 +259,27 @@ function renderMap(events) {
       riseOnHover: true,
     }).addTo(map);
 
-    marker.bindPopup(popupMarkup(event), { closeButton: true, maxWidth: 280, offset: [0, -2] });
+    marker.bindPopup(popupMarkup(event), {
+      closeButton: true,
+      maxWidth: 280,
+      offset: [0, -2],
+      // Keep the popup clear of the buttons floating over the top of the map.
+      autoPanPaddingTopLeft: L.point(16, window.innerWidth <= 760 ? 140 : 70),
+      autoPanPaddingBottomRight: L.point(16, 60),
+    });
     marker.on("click", () => selectEvent(event.id, false));
     marker.on("popupclose", () => clearSelection());
     state.markers.set(event.id, marker);
   });
+
+  if (keepView) return;
+
+  if (state.nearMe && state.userPosition) {
+    const nearest = events.slice(0, 5).map((event) => [event.latitude, event.longitude]);
+    const bounds = L.latLngBounds([[state.userPosition.lat, state.userPosition.lng], ...nearest]);
+    map.fitBounds(bounds, { padding: [55, 55], maxZoom: 14, animate: true });
+    return;
+  }
 
   if (events.length === 1) map.setView([events[0].latitude, events[0].longitude], 14, { animate: true });
   if (events.length > 1) {
@@ -208,20 +292,31 @@ function renderCards(events) {
   elements.eventList.innerHTML = events.map((event, index) => {
     const parts = dateParts(event.date);
     const typeLabel = event.type.join(" / ");
-    return `<button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
+    const saved = isSaved(event);
+    const distance = formatDistance(distanceKm(event));
+    return `<div class="event-card-wrap" style="--event-color:${colorFor(event.type[0])}">
+    <button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
       <span class="card-date">${parts.day}<small>${parts.month}</small></span>
       <span>
         <span class="card-type">${safeText(typeLabel)}${event.vibeApproved ? '<img class="card-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</span>
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
         ${event.tags?.length ? `<span class="card-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</span>` : ""}
-        <span class="card-bottom"><span>${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
+        <span class="card-bottom"><span>${distance ? `${safeText(distance)} · ` : ""}${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
       </span>
-    </button>`;
+    </button>
+    <button class="card-save ${saved ? "is-saved" : ""}" type="button" data-event-id="${safeText(event.id)}" aria-pressed="${saved}" aria-label="${saved ? "Remove from saved" : "Save event"}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z" /></svg>
+    </button>
+    </div>`;
   }).join("");
 
   elements.eventList.querySelectorAll(".event-card").forEach((card) => {
     card.addEventListener("click", () => selectEvent(card.dataset.eventId, true));
+  });
+
+  elements.eventList.querySelectorAll(".card-save").forEach((button) => {
+    button.addEventListener("click", () => toggleSaved(button.dataset.eventId));
   });
 }
 
@@ -338,29 +433,136 @@ setupRailDragScroll(elements.concertRail);
 bindRailScrubber(elements.vibeApprovedRail, elements.vibeApprovedScrubber);
 bindRailScrubber(elements.concertRail, elements.concertScrubber);
 
-function render() {
+function render(keepView = false) {
   const events = filteredEvents();
   if (!events.some((event) => event.id === state.selectedId)) state.selectedId = null;
 
-  renderMap(events);
+  renderMap(events, keepView);
   renderCards(events);
   renderKey(events);
 
   elements.resultCount.textContent = events.length;
   elements.mobileCount.textContent = events.length;
+  elements.railTitle.textContent = state.savedOnly ? "saved" : "selected";
+  elements.emptyTitle.textContent = state.savedOnly
+    ? "No saved events yet. Tap the heart on any event."
+    : "Nothing matches that combination.";
+  updateToolButtons();
   elements.emptyState.hidden = events.length !== 0;
   document.querySelector(".map-section").hidden = events.length === 0;
 }
 
+function findEvent(id) {
+  return state.events.find((event) => event.id === id) || savedEvents().find((event) => event.id === id);
+}
+
+function updateToolButtons() {
+  const savedTotal = savedEvents().length;
+  elements.savedCount.textContent = savedTotal;
+  elements.savedButton.classList.toggle("is-on", state.savedOnly);
+  elements.savedButton.setAttribute("aria-pressed", String(state.savedOnly));
+  elements.nearMeButton.classList.toggle("is-on", state.nearMe);
+  elements.nearMeButton.setAttribute("aria-pressed", String(state.nearMe));
+}
+
+async function persistSaved() {
+  await native.storage.set(SAVED_KEY, [...state.saved.entries()]);
+}
+
+async function toggleSaved(id) {
+  const event = findEvent(id);
+  if (!event) return;
+  const key = eventKey(event);
+  native.haptic(state.saved.has(key) ? "LIGHT" : "MEDIUM");
+
+  if (state.saved.has(key)) {
+    state.saved.delete(key);
+    native.cancelReminders(key);
+  } else {
+    const { ...copy } = event;
+    state.saved.set(key, copy);
+    native.scheduleReminders(event, key);
+  }
+
+  await persistSaved();
+  const marker = state.markers.get(id);
+  const popupWasOpen = marker?.isPopupOpen();
+  render(true);
+  if (popupWasOpen) state.markers.get(id)?.openPopup();
+}
+
+async function shareEvent(id) {
+  const event = findEvent(id);
+  if (!event) return;
+  native.haptic();
+  const url = `${native.siteUrl}/?event=${encodeURIComponent(eventKey(event))}`;
+  const result = await native.share({
+    title: event.title,
+    text: `${event.title}, ${formatFilterDate(event.date)} at ${event.location.split(",")[0]}. Found on Where's The Vibe.`,
+    url,
+  });
+  if (result === "copied") setStatus("Link copied", false);
+}
+
+async function toggleNearMe() {
+  if (state.nearMe) {
+    state.nearMe = false;
+    userMarker?.remove();
+    render();
+    return;
+  }
+
+  elements.nearMeButton.disabled = true;
+  elements.nearMeButton.lastElementChild.textContent = "Finding you";
+  try {
+    state.userPosition = await native.getPosition();
+    state.nearMe = true;
+    native.haptic();
+    showUserMarker();
+    render();
+    openMobileRail();
+  } catch (error) {
+    setStatus(error.message || "Could not find your location", true);
+  } finally {
+    elements.nearMeButton.disabled = false;
+    elements.nearMeButton.lastElementChild.textContent = "Near me";
+  }
+}
+
+let userMarker = null;
+
+function showUserMarker() {
+  userMarker?.remove();
+  userMarker = L.marker([state.userPosition.lat, state.userPosition.lng], {
+    icon: L.divIcon({ className: "user-marker-wrap", html: '<span class="user-marker"></span>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+    interactive: false,
+    keyboard: false,
+  }).addTo(map);
+}
+
+function toggleSavedOnly() {
+  state.savedOnly = !state.savedOnly;
+  native.haptic();
+  render();
+  if (state.savedOnly) openMobileRail();
+}
+
+function setStatus(message, isError) {
+  elements.syncStatus.classList.toggle("error", isError);
+  elements.syncStatus.lastElementChild.textContent = message;
+}
+
 function selectEvent(id, openPopup) {
   state.selectedId = id;
+  native.haptic();
   document.querySelectorAll(".event-card").forEach((card) => card.classList.toggle("active", card.dataset.eventId === id));
   state.markers.forEach((marker, markerId) => marker.getElement()?.classList.toggle("is-active", markerId === id));
 
   const marker = state.markers.get(id);
   if (marker) {
     map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 13), { duration: 0.65 });
-    if (openPopup) marker.openPopup();
+    // Open after the fly-to settles so the popup can pan itself fully into view.
+    if (openPopup) setTimeout(() => state.markers.get(id)?.openPopup(), 700);
   }
 
   if (window.innerWidth <= 760) closeMobileRail();
@@ -479,21 +681,48 @@ async function loadEvents() {
   elements.syncStatus.lastElementChild.textContent = "Reading the guest list";
 
   try {
-    const response = await fetch("/api/events", { headers: { Accept: "application/json" }, cache: "no-store" });
+    const response = await fetch(`${native.apiBase}/api/events`, { headers: { Accept: "application/json" }, cache: "no-store" });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Unable to load events");
 
     state.events = Array.isArray(payload.events) ? payload.events : [];
+    state.offline = false;
+    native.storage.set(CACHE_KEY, { events: state.events, at: Date.now() });
     populateFilters();
     renderFlyerShowcases();
     render();
     elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
   } catch (error) {
-    elements.syncStatus.classList.add("error");
-    elements.syncStatus.lastElementChild.textContent = error.message || "The event feed is offline";
+    const cached = await native.storage.get(CACHE_KEY);
+    if (cached?.events?.length && !state.events.length) {
+      const today = todayString();
+      state.events = cached.events.filter((event) => event.date >= today);
+      state.offline = true;
+      populateFilters();
+      renderFlyerShowcases();
+      render();
+      setStatus("Offline. Showing your last update", true);
+    } else {
+      setStatus(error.message === "Failed to fetch" ? "You're offline. Saved events still work" : (error.message || "The event feed is offline"), true);
+      render();
+    }
   } finally {
     setLoading(false);
+    native.appReady();
   }
+}
+
+function openEventFromLink(key) {
+  const event = state.events.find((item) => eventKey(item) === key) || state.saved.get(key);
+  if (!event) return;
+  if (!filteredEvents().some((item) => item.id === event.id)) {
+    resetFilters();
+    if (!state.events.some((item) => item.id === event.id)) {
+      state.savedOnly = true;
+      render();
+    }
+  }
+  setTimeout(() => selectEvent(event.id, true), 300);
 }
 
 elements.dateFilter.addEventListener("change", (event) => { state.date = event.target.value; render(); });
@@ -504,6 +733,27 @@ elements.emptyReset.addEventListener("click", resetFilters);
 elements.refreshButton.addEventListener("click", loadEvents);
 elements.mobileListButton.addEventListener("click", openMobileRail);
 elements.closeRail.addEventListener("click", closeMobileRail);
+elements.nearMeButton.addEventListener("click", toggleNearMe);
+elements.savedButton.addEventListener("click", toggleSavedOnly);
+
+map.on("popupopen", (event) => {
+  event.popup.getElement()?.querySelectorAll("[data-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.action === "save") toggleSaved(button.dataset.eventId);
+      if (button.dataset.action === "share") shareEvent(button.dataset.eventId);
+    });
+  });
+});
+
+// In the app, ticket and flyer links open in an in-app browser sheet instead of leaving the app.
+document.addEventListener("click", (event) => {
+  if (!native.isNative || event.defaultPrevented) return;
+  const link = event.target.closest?.('a[target="_blank"]');
+  const url = link && safeUrl(link.href);
+  if (!url) return;
+  event.preventDefault();
+  native.openUrl(url);
+});
 setupDropdown(elements.typeToggle, elements.typePanel);
 setupDropdown(elements.locationToggle, elements.locationPanel);
 
@@ -555,9 +805,14 @@ function saveSignupState(value) {
   }
 }
 
+// In the app the pop-up shows at most once a fortnight; on the website it shows every visit.
+const NATIVE_SIGNUP_GAP_MS = 14 * 24 * 60 * 60 * 1000;
+
 function shouldAutoOpenSignup() {
   const saved = readSignupState();
-  return !saved.subscribed;
+  if (saved.subscribed) return false;
+  if (native.isNative && saved.dismissedAt && Date.now() - saved.dismissedAt < NATIVE_SIGNUP_GAP_MS) return false;
+  return true;
 }
 
 function openSignup() {
@@ -576,6 +831,8 @@ function closeSignup() {
   if (signup.overlay.hidden) return;
   signup.overlay.hidden = true;
   document.body.classList.remove("signup-open");
+  const current = readSignupState();
+  if (!current.subscribed) saveSignupState({ ...current, dismissedAt: Date.now() });
   signup.lastFocus?.focus?.({ preventScroll: true });
 }
 
@@ -598,7 +855,7 @@ async function submitSignup(event) {
   signup.submit.firstElementChild.textContent = "Adding you";
 
   try {
-    const response = await fetch("/api/subscribe", {
+    const response = await fetch(`${native.apiBase}/api/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ email, website: signup.website.value, source: "popup", page: location.pathname }),
@@ -641,4 +898,14 @@ document.addEventListener("keydown", (event) => {
 
 if (shouldAutoOpenSignup()) setTimeout(openSignup, SIGNUP_DELAY_MS);
 
-loadEvents();
+async function start() {
+  const stored = await native.storage.get(SAVED_KEY);
+  if (Array.isArray(stored)) state.saved = new Map(stored);
+  updateToolButtons();
+  native.onReminderTap((key) => openEventFromLink(key));
+  await loadEvents();
+  const linked = new URLSearchParams(location.search).get("event");
+  if (linked) openEventFromLink(linked);
+}
+
+start();

@@ -1,0 +1,48 @@
+# Cloud build for the Where's The Vibe iPhone app.
+# Codemagic builds the app on a Mac in the cloud, signs it with your Apple
+# account and uploads it to TestFlight. Start a build from codemagic.io.
+workflows:
+  ios-testflight:
+    name: iPhone app to TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      # The name you give the App Store Connect API key in Codemagic
+      # (Team settings > Integrations > Developer Portal). Must match exactly.
+      app_store_connect: Wheres The Vibe
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.vibeconnoisseur.wheresthevibe
+      vars:
+        XCODE_PROJECT: ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+      node: 22
+      xcode: latest
+    scripts:
+      - name: Install packages
+        script: npm ci
+      - name: Build the app files
+        script: |
+          npm run build
+          npx cap sync ios
+      - name: Set the build number
+        script: |
+          # Every TestFlight upload needs a higher build number than the last.
+          NEXT=$((BUILD_NUMBER + 1))
+          sed -i '' "s/CURRENT_PROJECT_VERSION = [0-9]*;/CURRENT_PROJECT_VERSION = $NEXT;/g" "$XCODE_PROJECT/project.pbxproj"
+          echo "Build number $NEXT"
+      - name: Set up signing
+        script: xcode-project use-profiles
+      - name: Build the iPhone app
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
