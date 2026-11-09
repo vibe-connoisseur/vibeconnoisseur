@@ -10,7 +10,7 @@ const out = join(root, "www");
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, "vendor/leaflet"), { recursive: true });
 
-for (const file of ["app.js", "native.js", "styles.css", "privacy.html"]) cpSync(join(root, file), join(out, file));
+for (const file of ["app.js", "native.js", "account.js", "styles.css", "privacy.html"]) cpSync(join(root, file), join(out, file));
 cpSync(join(root, "assets"), join(out, "assets"), { recursive: true });
 
 const leaflet = join(root, "node_modules/leaflet/dist");

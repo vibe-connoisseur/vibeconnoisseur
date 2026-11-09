@@ -32,6 +32,7 @@ const native = window.VibeNative || {
   isNative: false, apiBase: "", siteUrl: location.origin, haptic() {}, async getPosition() { throw new Error("Location is not available"); },
   storage: { async get() { return null; }, async set() {} }, async scheduleReminders() { return false; }, async cancelReminders() {},
   onReminderTap() {}, async share() { return "cancelled"; }, openUrl(url) { window.open(url, "_blank", "noopener"); }, appReady() {},
+  canUseApple: false, async appleSignIn() { throw new Error("Not available"); }, webFetch: window.fetch.bind(window),
 };
 const SAVED_KEY = "wtv-saved-events";
 const CACHE_KEY = "wtv-events-cache";
@@ -40,9 +41,11 @@ const elements = {
   ageFilter: document.querySelector("#ageFilter"),
   clearFilters: document.querySelector("#clearFilters"),
   closeRail: document.querySelector("#closeRail"),
-  concertRail: document.querySelector("#concertRail"),
-  concertScrubber: document.querySelector("#concertScrubber"),
-  concertShowcase: document.querySelector("#concertShowcase"),
+  detailBody: document.querySelector("#detailBody"),
+  detailClose: document.querySelector("#detailClose"),
+  detailOverlay: document.querySelector("#detailOverlay"),
+  flyerShowcases: document.querySelector("#flyerShowcases"),
+  toast: document.querySelector("#toast"),
   dateFilter: document.querySelector("#dateFilter"),
   emptyReset: document.querySelector("#emptyReset"),
   emptyState: document.querySelector("#emptyState"),
@@ -64,9 +67,6 @@ const elements = {
   syncStatus: document.querySelector("#syncStatus"),
   typeToggle: document.querySelector("#typeFilterToggle"),
   typePanel: document.querySelector("#typeFilterPanel"),
-  vibeApprovedRail: document.querySelector("#vibeApprovedRail"),
-  vibeApprovedScrubber: document.querySelector("#vibeApprovedScrubber"),
-  vibeApprovedShowcase: document.querySelector("#vibeApprovedShowcase"),
 };
 
 const map = L.map("map", {
@@ -233,7 +233,9 @@ function markerIcon(event) {
 function popupMarkup(event) {
   const ticketUrl = safeUrl(event.ticketUrl);
   const typeLabel = event.type.join(" / ");
-  return `<article class="popup-card ${event.vibeApproved ? "approved" : ""}" style="--event-color:${colorFor(event.type[0])}">
+  const flyerUrl = safeUrl(event.flyerUrl);
+  return `<article class="popup-card ${event.vibeApproved ? "approved" : ""} ${flyerUrl ? "has-flyer" : ""}" style="--event-color:${colorFor(event.type[0])}">
+    ${flyerUrl ? `<button type="button" class="popup-flyer" data-action="details" data-event-id="${safeText(event.id)}" aria-label="View flyer and details"><img src="${flyerUrl}" alt="" loading="lazy" /></button>` : ""}
     ${event.vibeApproved ? '<img class="popup-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}
     <p class="popup-label">${safeText(typeLabel)} / ${safeText(formatFullDate(event.date))}</p>
     <h2>${safeText(event.title)}</h2>
@@ -244,7 +246,7 @@ function popupMarkup(event) {
       <button type="button" class="popup-action ${isSaved(event) ? "is-saved" : ""}" data-action="save" data-event-id="${safeText(event.id)}">${isSaved(event) ? "Saved" : "Save"}</button>
       <button type="button" class="popup-action" data-action="share" data-event-id="${safeText(event.id)}">Share</button>
     </div>
-    ${ticketUrl ? `<a class="popup-link" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Get tickets</span><span>↗</span></a>` : ""}
+    <button type="button" class="popup-link" data-action="details" data-event-id="${safeText(event.id)}"><span>${ticketUrl ? "Details &amp; tickets" : "Details"}</span><span>↗</span></button>
   </article>`;
 }
 
@@ -294,6 +296,7 @@ function renderCards(events) {
     const typeLabel = event.type.join(" / ");
     const saved = isSaved(event);
     const distance = formatDistance(distanceKm(event));
+    const flyerUrl = safeUrl(event.flyerUrl);
     return `<div class="event-card-wrap" style="--event-color:${colorFor(event.type[0])}">
     <button class="event-card ${state.selectedId === event.id ? "active" : ""}" data-event-id="${safeText(event.id)}" type="button" style="--event-color:${colorFor(event.type[0])};animation-delay:${index * 45}ms">
       <span class="card-date">${parts.day}<small>${parts.month}</small></span>
@@ -302,9 +305,11 @@ function renderCards(events) {
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
         ${event.tags?.length ? `<span class="card-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</span>` : ""}
-        <span class="card-bottom"><span>${distance ? `${safeText(distance)} · ` : ""}${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)} ↗</span></span>
+        <span class="card-bottom"><span>${distance ? `${safeText(distance)} · ` : ""}${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></span>
       </span>
+      ${flyerUrl ? `<img class="card-flyer" src="${flyerUrl}" alt="" loading="lazy" />` : ""}
     </button>
+    <button class="card-details" type="button" data-event-id="${safeText(event.id)}">Details &amp; tickets ↗</button>
     <button class="card-save ${saved ? "is-saved" : ""}" type="button" data-event-id="${safeText(event.id)}" aria-pressed="${saved}" aria-label="${saved ? "Remove from saved" : "Save event"}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z" /></svg>
     </button>
@@ -318,6 +323,10 @@ function renderCards(events) {
   elements.eventList.querySelectorAll(".card-save").forEach((button) => {
     button.addEventListener("click", () => toggleSaved(button.dataset.eventId));
   });
+
+  elements.eventList.querySelectorAll(".card-details").forEach((button) => {
+    button.addEventListener("click", () => openEventDetail(button.dataset.eventId));
+  });
 }
 
 function renderKey(events) {
@@ -328,34 +337,69 @@ function renderKey(events) {
 }
 
 function flyerCardMarkup(event) {
-  const ticketUrl = safeUrl(event.ticketUrl);
   const flyerUrl = safeUrl(event.flyerUrl);
   const typeLabel = event.type.join(" / ");
-  return `<a class="flyer-card ${flyerUrl ? "" : "no-flyer"}" style="--event-color:${colorFor(event.type[0])}" href="${ticketUrl || "#"}" target="${ticketUrl ? "_blank" : "_self"}" rel="noopener noreferrer" draggable="false">
-    <span class="flyer-card-image" ${flyerUrl ? `style="background-image:url('${flyerUrl}')"` : ""} aria-hidden="true">
+  const image = flyerUrl
+    ? `<img class="flyer-card-image" src="${flyerUrl}" alt="" loading="lazy" draggable="false" />`
+    : `<span class="flyer-card-image flyer-placeholder" aria-hidden="true"><span>${safeText(event.type[0])}</span><strong>${safeText(event.title)}</strong></span>`;
+  return `<button type="button" class="flyer-card" data-event-id="${safeText(event.id)}" style="--event-color:${colorFor(event.type[0])}">
+    <span class="flyer-card-frame">
+      ${image}
       ${event.vibeApproved ? '<img class="flyer-card-approved" src="assets/vibe-approved.png" alt="Vibe approved" draggable="false" />' : ""}
     </span>
     <span class="flyer-card-body">
       <span class="flyer-card-type">${safeText(typeLabel)} / ${safeText(formatFilterDate(event.date))}</span>
       <h3>${safeText(event.title)}</h3>
-      <span class="flyer-card-location">${safeText(event.location)}</span>
-      <span class="flyer-card-meta"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></span>
-      ${event.tags?.length ? `<span class="flyer-card-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</span>` : ""}
+      <span class="flyer-card-location">${safeText(event.location.split(",")[0])}</span>
+      <span class="flyer-card-meta"><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></span>
     </span>
-  </a>`;
+  </button>`;
+}
+
+// One rail of flyers for Vibe Approved, then one per event type, so every
+// event shows up with its flyer. Events with flyers come first in each rail.
+function flyerGroups() {
+  const withFlyerFirst = (events) => [...events].sort((first, second) =>
+    Number(Boolean(second.flyerUrl)) - Number(Boolean(first.flyerUrl)) || first.date.localeCompare(second.date));
+  const typeOrder = ["Concert", "Night Party", "Day Party", "Brunch", "Festival", "Games Night"];
+  const types = [...new Set(state.events.flatMap((event) => event.type))]
+    .sort((first, second) => {
+      const a = typeOrder.indexOf(first);
+      const b = typeOrder.indexOf(second);
+      return (a === -1 ? 99 : a) - (b === -1 ? 99 : b) || first.localeCompare(second);
+    });
+  const titles = { Concert: "Concerts", "Night Party": "Night Parties", "Day Party": "Day Parties", Brunch: "Brunches", Festival: "Festivals", "Games Night": "Games Nights" };
+  const plural = (type) => titles[type] || type;
+
+  return [
+    { title: "Vibe Approved", events: withFlyerFirst(state.events.filter((event) => event.vibeApproved)) },
+    ...types.map((type) => ({ title: plural(type), events: withFlyerFirst(state.events.filter((event) => event.type.includes(type))) })),
+  ].filter((group) => group.events.length);
 }
 
 function renderFlyerShowcases() {
-  const vibeApprovedEvents = state.events.filter((event) => event.vibeApproved);
-  const concertEvents = state.events.filter((event) => event.type.includes("Concert"));
+  elements.flyerShowcases.innerHTML = flyerGroups().map((group, index) => `
+    <section class="flyer-showcase" aria-label="${safeText(group.title)} events">
+      <h2 class="flyer-showcase-title">${safeText(group.title)} <span>${group.events.length}</span></h2>
+      <div class="flyer-rail" data-rail="${index}">${group.events.map(flyerCardMarkup).join("")}</div>
+      <div class="flyer-rail-scrubber">
+        <input type="range" min="0" max="0" value="0" step="1" aria-label="Scroll ${safeText(group.title)} flyers" />
+      </div>
+    </section>`).join("");
 
-  elements.vibeApprovedShowcase.hidden = vibeApprovedEvents.length === 0;
-  elements.vibeApprovedRail.innerHTML = vibeApprovedEvents.map(flyerCardMarkup).join("");
-  syncRailScrubber(elements.vibeApprovedRail, elements.vibeApprovedScrubber);
-
-  elements.concertShowcase.hidden = concertEvents.length === 0;
-  elements.concertRail.innerHTML = concertEvents.map(flyerCardMarkup).join("");
-  syncRailScrubber(elements.concertRail, elements.concertScrubber);
+  elements.flyerShowcases.querySelectorAll(".flyer-showcase").forEach((section) => {
+    const rail = section.querySelector(".flyer-rail");
+    const scrubber = section.querySelector("input[type=range]");
+    setupRailDragScroll(rail);
+    bindRailScrubber(rail, scrubber);
+    syncRailScrubber(rail, scrubber);
+    rail.querySelectorAll(".flyer-card").forEach((card) => {
+      card.addEventListener("click", () => openEventDetail(card.dataset.eventId));
+    });
+    rail.querySelectorAll("img.flyer-card-image").forEach((image) => {
+      image.addEventListener("error", () => image.replaceWith(Object.assign(document.createElement("span"), { className: "flyer-card-image flyer-placeholder" })), { once: true });
+    });
+  });
 }
 
 // Desktop-only visible slider (hidden on mobile via CSS, where native touch
@@ -428,10 +472,6 @@ function setupRailDragScroll(rail) {
   }, { passive: false });
 }
 
-setupRailDragScroll(elements.vibeApprovedRail);
-setupRailDragScroll(elements.concertRail);
-bindRailScrubber(elements.vibeApprovedRail, elements.vibeApprovedScrubber);
-bindRailScrubber(elements.concertRail, elements.concertScrubber);
 
 function render(keepView = false) {
   const events = filteredEvents();
@@ -465,6 +505,84 @@ function updateToolButtons() {
   elements.nearMeButton.setAttribute("aria-pressed", String(state.nearMe));
 }
 
+// account.js plugs into these to sync saves and apply preferences.
+const hooks = {
+  savedChanged() {},
+  reminderOptions() { return { dayBefore: true, onDay: true }; },
+};
+
+let toastTimer = null;
+function showToast(message) {
+  elements.toast.textContent = message;
+  elements.toast.hidden = false;
+  requestAnimationFrame(() => elements.toast.classList.add("show"));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    elements.toast.classList.remove("show");
+    setTimeout(() => { elements.toast.hidden = true; }, 250);
+  }, 2600);
+}
+
+// Event detail pop-up: flyer, description and details, shown before
+// anyone leaves for the ticket site.
+function detailMarkup(event) {
+  const ticketUrl = safeUrl(event.ticketUrl);
+  const flyerUrl = safeUrl(event.flyerUrl);
+  const saved = isSaved(event);
+  const description = event.description
+    || `${event.title} at ${event.location.split(",")[0]}. Full details and ticket options are on the ticket page.`;
+  return `<article class="detail-card" style="--event-color:${colorFor(event.type[0])}">
+    ${flyerUrl ? `<div class="detail-flyer"><img src="${flyerUrl}" alt="Flyer for ${safeText(event.title)}" /></div>` : ""}
+    <div class="detail-text">
+      <p class="detail-label">${safeText(event.type.join(" / "))} / ${safeText(formatFullDate(event.date))}</p>
+      <h2 id="detailTitle">${safeText(event.title)}${event.vibeApproved ? '<img class="detail-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</h2>
+      <p class="detail-location">${safeText(event.location)}</p>
+      <div class="detail-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
+      <p class="detail-description">${safeText(description)}</p>
+      ${event.tags?.length ? `<div class="detail-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</div>` : ""}
+      <div class="detail-actions">
+        <button type="button" class="detail-secondary ${saved ? "is-saved" : ""}" data-detail-action="save" data-event-id="${safeText(event.id)}">${saved ? "Saved" : "Save"}</button>
+        <button type="button" class="detail-secondary" data-detail-action="share" data-event-id="${safeText(event.id)}">Share</button>
+      </div>
+      ${ticketUrl
+        ? `<a class="detail-tickets" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Continue to tickets</span><span>↗</span></a>
+           <p class="detail-fine">Tickets are sold by the organiser's ticket site.</p>`
+        : '<p class="detail-tickets is-disabled"><span>Tickets not live yet</span></p><p class="detail-fine">Save it and we will remind you closer to the date.</p>'}
+    </div>
+  </article>`;
+}
+
+let detailReturnFocus = null;
+
+function openEventDetail(id) {
+  const event = findEvent(id);
+  if (!event) return;
+  native.haptic();
+  detailReturnFocus = document.activeElement;
+  elements.detailBody.innerHTML = detailMarkup(event);
+  elements.detailOverlay.hidden = false;
+  document.body.classList.add("detail-open");
+  requestAnimationFrame(() => elements.detailOverlay.classList.add("show"));
+  elements.detailClose.focus();
+}
+
+function closeEventDetail() {
+  elements.detailOverlay.classList.remove("show");
+  document.body.classList.remove("detail-open");
+  setTimeout(() => { elements.detailOverlay.hidden = true; }, 200);
+  detailReturnFocus?.focus?.();
+}
+
+function refreshDetailSaveButton(id) {
+  if (elements.detailOverlay.hidden) return;
+  const button = elements.detailBody.querySelector(`[data-detail-action="save"][data-event-id="${CSS.escape(id)}"]`);
+  const event = findEvent(id);
+  if (!button || !event) return;
+  const saved = isSaved(event);
+  button.classList.toggle("is-saved", saved);
+  button.textContent = saved ? "Saved" : "Save";
+}
+
 async function persistSaved() {
   await native.storage.set(SAVED_KEY, [...state.saved.entries()]);
 }
@@ -478,13 +596,17 @@ async function toggleSaved(id) {
   if (state.saved.has(key)) {
     state.saved.delete(key);
     native.cancelReminders(key);
+    hooks.savedChanged(key, null);
   } else {
     const { ...copy } = event;
     state.saved.set(key, copy);
-    native.scheduleReminders(event, key);
+    native.scheduleReminders(event, key, hooks.reminderOptions());
+    hooks.savedChanged(key, copy);
+    showToast("Saved. We'll remind you before it starts.");
   }
 
   await persistSaved();
+  refreshDetailSaveButton(id);
   const marker = state.markers.get(id);
   const popupWasOpen = marker?.isPopupOpen();
   render(true);
@@ -741,6 +863,7 @@ map.on("popupopen", (event) => {
     button.addEventListener("click", () => {
       if (button.dataset.action === "save") toggleSaved(button.dataset.eventId);
       if (button.dataset.action === "share") shareEvent(button.dataset.eventId);
+      if (button.dataset.action === "details") openEventDetail(button.dataset.eventId);
     });
   });
 });
@@ -754,6 +877,20 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   native.openUrl(url);
 });
+elements.detailClose.addEventListener("click", closeEventDetail);
+elements.detailOverlay.addEventListener("click", (event) => {
+  if (event.target === elements.detailOverlay) closeEventDetail();
+});
+elements.detailBody.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-detail-action]");
+  if (!button) return;
+  if (button.dataset.detailAction === "save") toggleSaved(button.dataset.eventId);
+  if (button.dataset.detailAction === "share") shareEvent(button.dataset.eventId);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !elements.detailOverlay.hidden) closeEventDetail();
+});
+
 setupDropdown(elements.typeToggle, elements.typePanel);
 setupDropdown(elements.locationToggle, elements.locationPanel);
 
@@ -898,14 +1035,44 @@ document.addEventListener("keydown", (event) => {
 
 if (shouldAutoOpenSignup()) setTimeout(openSignup, SIGNUP_DELAY_MS);
 
+function applyFavourites(types, regions) {
+  state.types = new Set(types.filter((type) => type === "Vibe Approved" || state.events.some((event) => event.type.includes(type))));
+  state.regions = new Set(regions.filter((region) => state.events.some((event) => event.region === region)));
+  populateFilters();
+  render();
+}
+
+// Used by account.js (profiles, preferences, saved-event sync).
+window.VibeApp = {
+  native,
+  hooks,
+  state,
+  eventKey,
+  findEvent,
+  savedEvents,
+  persistSaved,
+  render,
+  showToast,
+  openEventDetail,
+  applyFavourites,
+  eventTypes: () => [...new Set(state.events.flatMap((event) => event.type))].sort(),
+  regions: () => ["North London", "North West London", "East London", "South London", "West London", "Central London"]
+    .filter((region) => state.events.some((event) => event.region === region))
+    .concat([...new Set(state.events.map((event) => event.region))].filter((region) =>
+      region && !["North London", "North West London", "East London", "South London", "West London", "Central London"].includes(region)).sort()),
+  openNewsletter: () => openSignup(),
+  ready: null,
+};
+
 async function start() {
   const stored = await native.storage.get(SAVED_KEY);
   if (Array.isArray(stored)) state.saved = new Map(stored);
   updateToolButtons();
   native.onReminderTap((key) => openEventFromLink(key));
   await loadEvents();
+  document.dispatchEvent(new CustomEvent("vibe:events-loaded"));
   const linked = new URLSearchParams(location.search).get("event");
   if (linked) openEventFromLink(linked);
 }
 
-start();
+window.VibeApp.ready = start();

@@ -1,3 +1,5 @@
+import { flyerPublicUrl, serviceFetch, supabaseEnv } from "../lib/supabase.mts";
+
 type SheetEvent = {
   id: string;
   title: string;
@@ -16,6 +18,8 @@ type SheetEvent = {
   tags: string[];
   flyerImageUrl: string;
   flyerUrl: string;
+  description: string;
+  source: "sheet" | "submission";
 };
 
 type SkippedRow = { row: number; title: string; reason: string };
@@ -246,6 +250,45 @@ async function geocodePostcodes(postcodes: string[]): Promise<{
   return { coordinates, approximate };
 }
 
+// Approved brand submissions, reshaped to look like sheet rows so they go
+// through the same checks, geocoding and duplicate removal.
+async function approvedSubmissions(): Promise<Array<{ row: number; record: Record<string, string> }>> {
+  if (!supabaseEnv().ready) return [];
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const response = await serviceFetch(`/rest/v1/event_submissions?status=eq.approved&event_date=gte.${today}&select=*&order=event_date.asc`);
+    if (!response.ok) {
+      console.error("Could not load approved submissions", response.status);
+      return [];
+    }
+    const rows = await response.json() as Array<Record<string, string | null>>;
+    return rows.map((row, index) => {
+      const [year, month, day] = String(row.event_date).split("-");
+      return {
+        row: 10000 + index,
+        record: {
+          title: row.title || "",
+          approved: "Yes",
+          additional_tags: row.tags || "",
+          type_of_event: row.event_type || "Other",
+          date: `${day}/${month}/${year}`,
+          location: row.location || "",
+          age_range: row.age_range || "18+",
+          tickets_from: row.price || "",
+          vibe_approved: "",
+          flyer_image_url: flyerPublicUrl(row.flyer_path),
+          ticket_link: row.ticket_url || "",
+          description: row.description || "",
+          __source: "submission",
+        },
+      };
+    });
+  } catch (error) {
+    console.error("Approved submissions failed", error instanceof Error ? error.message : "Unknown error");
+    return [];
+  }
+}
+
 export default async (request: Request) => {
   if (request.method !== "GET") return Response.json({ error: "Method not allowed" }, { status: 405 });
 
@@ -278,6 +321,10 @@ export default async (request: Request) => {
       skipped.push({ row, title: record.title || "(no title)", reason: "Approved is not Yes" });
       return false;
     });
+
+    // Brand uploads approved in the app join the sheet events here.
+    const submissionRecords = await approvedSubmissions();
+    records.push(...submissionRecords);
 
     const recordPostcodes = records.map(({ record }) => extractPostcode(record.location || ""));
     const { coordinates, approximate } = await geocodePostcodes(recordPostcodes);
@@ -345,6 +392,8 @@ export default async (request: Request) => {
         tags: parseTags(record.additional_tags || ""),
         flyerImageUrl,
         flyerUrl: flyerImageUrl,
+        description: (record.description || "").trim().slice(0, 600),
+        source: record.__source === "submission" ? "submission" : "sheet",
       });
     });
 

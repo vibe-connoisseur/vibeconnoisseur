@@ -28,10 +28,15 @@ Everything is built in the cloud by Codemagic, so no Mac is needed.
 1. Install **TestFlight** from the App Store and test the build on your phone.
 2. In App Store Connect, fill in the listing:
    - Privacy Policy URL: `https://vibeconnoisseur.netlify.app/privacy.html`
-   - App Privacy: Data collected is **Email Address**, used for Developer Marketing, not linked to identity, not used for tracking. Location is used on device only, so it is not "collected".
+   - App Privacy (none used for tracking; all linked to the user's identity):
+     - **Contact Info > Email Address**: App Functionality, Developer's Advertising or Marketing
+     - **Contact Info > Name**: App Functionality
+     - **Identifiers > User ID**: App Functionality
+     - **User Content > Photos or Videos** (event flyers) and **Other User Content** (submitted events): App Functionality
+     - Location is used on the device only, so it is not "collected".
    - Category: Entertainment (or Lifestyle). Age rating: answer the questionnaire (events are 18+ nightlife, so expect 17+).
    - Screenshots: 6.9 inch iPhone screenshots (take them from TestFlight on a recent iPhone)
-   - Review notes: "Event discovery for London. Try Near me, save an event with the heart to get reminders, and share an event."
+   - Review notes: "Event discovery for London. Try Near me, save an event with the heart to get reminders, and share an event. Accounts are optional; Sign in with Apple works for review. Event submission is under Menu > Submit an event."
 3. Submit for review. First reviews usually take 1 to 3 days.
 
 ## Shipping an update

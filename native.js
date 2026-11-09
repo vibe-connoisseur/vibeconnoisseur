@@ -72,11 +72,15 @@
     return new Date(year, month - 1, day, hours, 0, 0);
   }
 
-  // Two reminders per saved event: 6pm the day before, and midday on the day.
-  // The sheet has dates but no start times, so these are fixed times.
-  async function scheduleReminders(event, key) {
+  // Up to two reminders per saved event: 6pm the day before, and midday on
+  // the day. The sheet has dates but no start times, so these are fixed times.
+  // Each can be switched off in Preferences.
+  async function scheduleReminders(event, key, options = {}) {
+    const wantDayBefore = options.dayBefore !== false;
+    const wantOnDay = options.onDay !== false;
     if (!isNative || !plugins.LocalNotifications) return false;
     try {
+      if (!wantDayBefore && !wantOnDay) return false;
       const permission = await plugins.LocalNotifications.requestPermissions();
       if (permission.display !== "granted") return false;
 
@@ -87,10 +91,10 @@
       const now = Date.now();
 
       const notifications = [
-        { id: dayBeforeId, at: dayBefore, title: "Tomorrow", body: `${event.title} is tomorrow. Tickets sorted?` },
-        { id: onTheDayId, at: onTheDay, title: "Today", body: `${event.title} is today at ${event.location.split(",")[0]}.` },
+        { id: dayBeforeId, at: dayBefore, wanted: wantDayBefore, title: "Tomorrow", body: `${event.title} is tomorrow. Tickets sorted?` },
+        { id: onTheDayId, at: onTheDay, wanted: wantOnDay, title: "Today", body: `${event.title} is today at ${event.location.split(",")[0]}.` },
       ]
-        .filter((item) => item.at.getTime() > now)
+        .filter((item) => item.wanted && item.at.getTime() > now)
         .map((item) => ({ id: item.id, title: item.title, body: item.body, schedule: { at: item.at, allowWhileIdle: true }, extra: { eventKey: key } }));
 
       if (notifications.length) await plugins.LocalNotifications.schedule({ notifications });
@@ -151,6 +155,37 @@
     window.open(url, "_blank", "noopener");
   }
 
+  function randomNonce() {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  async function sha256(text) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Sign in with Apple (iPhone app only). Apple gets the hashed nonce and
+  // Supabase gets the raw one, which is how it checks the token is fresh.
+  async function appleSignIn() {
+    if (!isNative || !plugins.SignInWithApple) throw new Error("Sign in with Apple is only available in the iPhone app");
+    const nonce = randomNonce();
+    const result = await plugins.SignInWithApple.authorize({
+      clientId: "com.vibeconnoisseur.wheresthevibe",
+      redirectURI: "",
+      scopes: "email name",
+      nonce: await sha256(nonce),
+    });
+    const response = result?.response || {};
+    if (!response.identityToken) throw new Error("Apple did not return a sign-in token");
+    return {
+      identityToken: response.identityToken,
+      nonce,
+      name: [response.givenName, response.familyName].filter(Boolean).join(" "),
+    };
+  }
+
   async function prepareShell() {
     if (!isNative) return;
     try { await plugins.StatusBar?.setStyle({ style: "DARK" }); } catch { /* optional */ }
@@ -176,5 +211,10 @@
     share,
     openUrl,
     appReady,
+    appleSignIn,
+    canUseApple: isNative && Boolean(plugins.SignInWithApple),
+    // The app routes fetch through native code. Supabase allows browser
+    // requests, so it can use the web view's own fetch.
+    webFetch: (window.CapacitorWebFetch || window.fetch).bind(window),
   };
 })();

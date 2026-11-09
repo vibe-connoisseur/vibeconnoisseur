@@ -57,6 +57,10 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Your location is used to show the events closest to you and how far away they are. It stays on your phone.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo of your event flyer to upload it with your event.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose your event flyer from your photos to upload it with your event.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIStatusBarStyle</key>
