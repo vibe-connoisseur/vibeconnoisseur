@@ -29,7 +29,7 @@ The app asks for a 6-digit code, so the emails need to include it.
    <p>It expires in one hour. If you didn't ask for it, ignore this email.</p>
    ```
 3. Do the same for the **Confirm signup** template, which new users get the first time.
-4. Under **Authentication**, then **Sign In / Providers**, then **Email**: keep Email turned on, and set the OTP length to 6 if there's an option for it.
+4. Under **Authentication**, then **Sign In / Providers**, then **Email**: keep Email turned on, and set **Email OTP Length** to 6 (the app accepts 6 to 10 digits, but 6 is easiest to type).
 
 ## 4. Use your own email sender
 
