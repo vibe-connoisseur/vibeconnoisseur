@@ -336,44 +336,42 @@ function renderKey(events) {
   ).join("");
 }
 
+// Every event gets a flyer. Without an image, one is drawn from its details.
+function placeholderFlyer(event, extraClass = "") {
+  return `<span class="flyer-card-image flyer-placeholder ${extraClass}" style="--event-color:${colorFor(event.type[0])}" aria-hidden="true">
+    <span class="ph-top">${safeText(event.type[0])}</span>
+    <strong>${safeText(event.title)}</strong>
+    <span class="ph-bottom"><b>${safeText(formatFilterDate(event.date))}</b>${safeText(event.location.split(",")[0])}</span>
+  </span>`;
+}
+
 function flyerCardMarkup(event) {
   const flyerUrl = safeUrl(event.flyerUrl);
-  const typeLabel = event.type.join(" / ");
   const image = flyerUrl
     ? `<img class="flyer-card-image" src="${flyerUrl}" alt="" loading="lazy" draggable="false" />`
-    : `<span class="flyer-card-image flyer-placeholder" aria-hidden="true"><span>${safeText(event.type[0])}</span><strong>${safeText(event.title)}</strong></span>`;
+    : placeholderFlyer(event);
   return `<button type="button" class="flyer-card" data-event-id="${safeText(event.id)}" style="--event-color:${colorFor(event.type[0])}">
     <span class="flyer-card-frame">
       ${image}
       ${event.vibeApproved ? '<img class="flyer-card-approved" src="assets/vibe-approved.png" alt="Vibe approved" draggable="false" />' : ""}
     </span>
     <span class="flyer-card-body">
-      <span class="flyer-card-type">${safeText(typeLabel)} / ${safeText(formatFilterDate(event.date))}</span>
+      <span class="flyer-card-type">${safeText(formatFilterDate(event.date))}</span>
       <h3>${safeText(event.title)}</h3>
-      <span class="flyer-card-location">${safeText(event.location.split(",")[0])}</span>
-      <span class="flyer-card-meta"><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></span>
     </span>
   </button>`;
 }
 
-// One rail of flyers for Vibe Approved, then one per event type, so every
-// event shows up with its flyer. Events with flyers come first in each rail.
+// Flyer rails only for Vibe Approved and Concerts. Every other event still
+// shows its flyer in the lists and pop-ups.
 function flyerGroups() {
+  const today = todayString();
+  const upcoming = state.events.filter((event) => event.date >= today);
   const withFlyerFirst = (events) => [...events].sort((first, second) =>
     Number(Boolean(second.flyerUrl)) - Number(Boolean(first.flyerUrl)) || first.date.localeCompare(second.date));
-  const typeOrder = ["Concert", "Night Party", "Day Party", "Brunch", "Festival", "Games Night"];
-  const types = [...new Set(state.events.flatMap((event) => event.type))]
-    .sort((first, second) => {
-      const a = typeOrder.indexOf(first);
-      const b = typeOrder.indexOf(second);
-      return (a === -1 ? 99 : a) - (b === -1 ? 99 : b) || first.localeCompare(second);
-    });
-  const titles = { Concert: "Concerts", "Night Party": "Night Parties", "Day Party": "Day Parties", Brunch: "Brunches", Festival: "Festivals", "Games Night": "Games Nights" };
-  const plural = (type) => titles[type] || type;
-
   return [
-    { title: "Vibe Approved", events: withFlyerFirst(state.events.filter((event) => event.vibeApproved)) },
-    ...types.map((type) => ({ title: plural(type), events: withFlyerFirst(state.events.filter((event) => event.type.includes(type))) })),
+    { title: "Vibe Approved", events: withFlyerFirst(upcoming.filter((event) => event.vibeApproved)) },
+    { title: "Concerts", events: withFlyerFirst(upcoming.filter((event) => event.type.includes("Concert"))) },
   ].filter((group) => group.events.length);
 }
 
@@ -509,6 +507,8 @@ function updateToolButtons() {
 const hooks = {
   savedChanged() {},
   reminderOptions() { return { dayBefore: true, onDay: true }; },
+  detailExtras() { return ""; },
+  eventsLoaded() {},
 };
 
 let toastTimer = null;
@@ -532,7 +532,7 @@ function detailMarkup(event) {
   const description = event.description
     || `${event.title} at ${event.location.split(",")[0]}. Full details and ticket options are on the ticket page.`;
   return `<article class="detail-card" style="--event-color:${colorFor(event.type[0])}">
-    ${flyerUrl ? `<div class="detail-flyer"><img src="${flyerUrl}" alt="Flyer for ${safeText(event.title)}" /></div>` : ""}
+    <div class="detail-flyer">${flyerUrl ? `<img src="${flyerUrl}" alt="Flyer for ${safeText(event.title)}" />` : placeholderFlyer(event, "is-large")}</div>
     <div class="detail-text">
       <p class="detail-label">${safeText(event.type.join(" / "))} / ${safeText(formatFullDate(event.date))}</p>
       <h2 id="detailTitle">${safeText(event.title)}${event.vibeApproved ? '<img class="detail-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</h2>
@@ -540,6 +540,7 @@ function detailMarkup(event) {
       <div class="detail-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
       <p class="detail-description">${safeText(description)}</p>
       ${event.tags?.length ? `<div class="detail-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</div>` : ""}
+      ${hooks.detailExtras(event)}
       <div class="detail-actions">
         <button type="button" class="detail-secondary ${saved ? "is-saved" : ""}" data-detail-action="save" data-event-id="${safeText(event.id)}">${saved ? "Saved" : "Save"}</button>
         <button type="button" class="detail-secondary" data-detail-action="share" data-event-id="${safeText(event.id)}">Share</button>
@@ -813,6 +814,7 @@ async function loadEvents() {
     populateFilters();
     renderFlyerShowcases();
     render();
+    hooks.eventsLoaded();
     elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
   } catch (error) {
     const cached = await native.storage.get(CACHE_KEY);
@@ -823,6 +825,7 @@ async function loadEvents() {
       populateFilters();
       renderFlyerShowcases();
       render();
+      hooks.eventsLoaded();
       setStatus("Offline. Showing your last update", true);
     } else {
       setStatus(error.message === "Failed to fetch" ? "You're offline. Saved events still work" : (error.message || "The event feed is offline"), true);
@@ -908,133 +911,6 @@ mapElement.addEventListener("touchcancel", () => mapPanel.classList.remove("is-p
 
 // Newsletter sign-up pop-up. Shows on every visit, shortly after the page loads.
 // Only people who have already signed up on this device stop seeing it.
-const SIGNUP_DELAY_MS = 1500;
-const SIGNUP_KEY = "wtv-newsletter";
-
-const signup = {
-  overlay: document.querySelector("#signupOverlay"),
-  form: document.querySelector("#signupFormEl"),
-  formPanel: document.querySelector("#signupForm"),
-  donePanel: document.querySelector("#signupDone"),
-  email: document.querySelector("#signupEmail"),
-  website: document.querySelector("#signupWebsite"),
-  submit: document.querySelector("#signupSubmit"),
-  error: document.querySelector("#signupError"),
-  close: document.querySelector("#signupClose"),
-  doneButton: document.querySelector("#signupDoneButton"),
-  openButton: document.querySelector("#openSignup"),
-  lastFocus: null,
-};
-
-function readSignupState() {
-  try {
-    return JSON.parse(localStorage.getItem(SIGNUP_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveSignupState(value) {
-  try {
-    localStorage.setItem(SIGNUP_KEY, JSON.stringify(value));
-  } catch {
-    // Private browsing or blocked storage: the pop-up may show again, which is fine.
-  }
-}
-
-// In the app the pop-up shows at most once a fortnight; on the website it shows every visit.
-const NATIVE_SIGNUP_GAP_MS = 14 * 24 * 60 * 60 * 1000;
-
-function shouldAutoOpenSignup() {
-  const saved = readSignupState();
-  if (saved.subscribed) return false;
-  if (native.isNative && saved.dismissedAt && Date.now() - saved.dismissedAt < NATIVE_SIGNUP_GAP_MS) return false;
-  return true;
-}
-
-function openSignup() {
-  if (!signup.overlay.hidden) return;
-  signup.lastFocus = document.activeElement;
-  const subscribed = readSignupState().subscribed;
-  signup.formPanel.hidden = Boolean(subscribed);
-  signup.donePanel.hidden = !subscribed;
-  signup.overlay.hidden = false;
-  document.body.classList.add("signup-open");
-  closeAllDropdowns();
-  setTimeout(() => (subscribed ? signup.doneButton : signup.email).focus({ preventScroll: true }), 50);
-}
-
-function closeSignup() {
-  if (signup.overlay.hidden) return;
-  signup.overlay.hidden = true;
-  document.body.classList.remove("signup-open");
-  const current = readSignupState();
-  if (!current.subscribed) saveSignupState({ ...current, dismissedAt: Date.now() });
-  signup.lastFocus?.focus?.({ preventScroll: true });
-}
-
-function showSignupError(message) {
-  signup.error.textContent = message;
-  signup.email.setAttribute("aria-invalid", message ? "true" : "false");
-}
-
-async function submitSignup(event) {
-  event.preventDefault();
-  const email = signup.email.value.trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-    showSignupError("Enter a valid email address.");
-    signup.email.focus();
-    return;
-  }
-
-  showSignupError("");
-  signup.submit.disabled = true;
-  signup.submit.firstElementChild.textContent = "Adding you";
-
-  try {
-    const response = await fetch(`${native.apiBase}/api/subscribe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ email, website: signup.website.value, source: "popup", page: location.pathname }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Could not save your email. Try again in a moment.");
-
-    saveSignupState({ subscribed: true, at: Date.now() });
-    signup.formPanel.hidden = true;
-    signup.donePanel.hidden = false;
-    signup.doneButton.focus({ preventScroll: true });
-    signup.form.reset();
-  } catch (error) {
-    showSignupError(error.message);
-  } finally {
-    signup.submit.disabled = false;
-    signup.submit.firstElementChild.textContent = "I'm in";
-  }
-}
-
-signup.form.addEventListener("submit", submitSignup);
-signup.email.addEventListener("input", () => { if (signup.error.textContent) showSignupError(""); });
-signup.close.addEventListener("click", closeSignup);
-signup.doneButton.addEventListener("click", closeSignup);
-signup.openButton.addEventListener("click", openSignup);
-signup.overlay.addEventListener("click", (event) => { if (event.target === signup.overlay) closeSignup(); });
-signup.overlay.addEventListener("click", (event) => event.stopPropagation());
-document.addEventListener("keydown", (event) => {
-  if (signup.overlay.hidden) return;
-  if (event.key === "Escape") closeSignup();
-  if (event.key === "Tab") {
-    const focusable = [...signup.overlay.querySelectorAll("button, input:not(.signup-honeypot)")]
-      .filter((node) => !node.closest("[hidden]") && !node.disabled);
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  }
-});
-
-if (shouldAutoOpenSignup()) setTimeout(openSignup, SIGNUP_DELAY_MS);
-
 function applyFavourites(types, regions) {
   state.types = new Set(types.filter((type) => type === "Vibe Approved" || state.events.some((event) => event.type.includes(type))));
   state.regions = new Set(regions.filter((region) => state.events.some((event) => event.region === region)));
@@ -1054,13 +930,24 @@ window.VibeApp = {
   render,
   showToast,
   openEventDetail,
+  closeEventDetail,
   applyFavourites,
+  map,
+  safeText,
+  safeUrl,
+  colorFor,
+  todayString,
+  formatFilterDate,
+  formatFullDate,
+  placeholderFlyer,
+  isSaved,
+  toggleSaved,
+  setupRailDragScroll,
   eventTypes: () => [...new Set(state.events.flatMap((event) => event.type))].sort(),
   regions: () => ["North London", "North West London", "East London", "South London", "West London", "Central London"]
     .filter((region) => state.events.some((event) => event.region === region))
     .concat([...new Set(state.events.map((event) => event.region))].filter((region) =>
       region && !["North London", "North West London", "East London", "South London", "West London", "Central London"].includes(region)).sort()),
-  openNewsletter: () => openSignup(),
   ready: null,
 };
 

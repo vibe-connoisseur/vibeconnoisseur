@@ -204,7 +204,7 @@
     if (error) throw error;
     if (data) return data;
     const created = { id: account.session.user.id, display_name: account.session.user.user_metadata?.full_name || null };
-    const insert = await account.client.from("profiles").upsert(created).select("*").single();
+    const insert = await account.client.from("profiles").insert(created).select("*").single();
     if (insert.error) throw insert.error;
     return insert.data;
   }
@@ -257,7 +257,7 @@
     try {
       const result = await api("/api/admin");
       account.isAdmin = Boolean(result.admin);
-      account.pendingCount = (result.submissions || []).length;
+      account.pendingCount = (result.submissions || []).length + (result.creators || []).length + (result.reports || []).length;
     } catch {
       account.isAdmin = false;
       account.pendingCount = 0;
@@ -280,6 +280,7 @@
     }
     await Promise.all([syncSavedEvents(), checkAdmin()]);
     updateMenuButton();
+    document.dispatchEvent(new CustomEvent("vibe:auth"));
     if (!silent) {
       app.showToast(`Signed in as ${displayName()}`);
       const next = account.afterSignIn;
@@ -297,6 +298,7 @@
     account.isAdmin = false;
     account.pendingCount = 0;
     updateMenuButton();
+    document.dispatchEvent(new CustomEvent("vibe:auth"));
     if (isOpen()) {
       viewStack.length = 0;
       showView("menu", { replace: true });
@@ -404,15 +406,16 @@
 
     ui.content.innerHTML = `${head}
       <nav class="drawer-list">
-        ${menuItem("profile", "Profile", signedIn() ? "Name, account type, Instagram" : "Sign in to set up")}
+        ${menuItem("profile", "Profile", signedIn() ? "Name, Brand or DJ profile, Instagram" : "Sign in to set up")}
         ${menuItem("preferences", "Preferences", "Favourite events, areas, reminders")}
         ${menuItem("settings", "Settings", "Account, notifications, privacy")}
         ${menuItem("submit", "Submit an event", "For event brands and promoters")}
-        ${account.isAdmin ? menuItem("admin", "Approvals", "Review brand submissions", account.pendingCount ? String(account.pendingCount) : "") : ""}
+        ${account.isAdmin ? menuItem("admin", "Approvals", "Events, Brand and DJ profiles, reports", account.pendingCount ? String(account.pendingCount) : "") : ""}
       </nav>
       <nav class="drawer-list drawer-list-minor">
         <button type="button" class="drawer-item" data-action="saved">${icon("saved")}<span><strong>Saved events</strong></span><em>${savedTotal}</em><b aria-hidden="true">&rsaquo;</b></button>
-        <button type="button" class="drawer-item" data-action="newsletter">${icon("mail")}<span><strong>Weekly newsletter</strong></span><b aria-hidden="true">&rsaquo;</b></button>
+        <button type="button" class="drawer-item" data-action="following">${icon("profile")}<span><strong>Following</strong></span><b aria-hidden="true">&rsaquo;</b></button>
+        ${isApprovedCreator() ? `<button type="button" class="drawer-item" data-action="my-public-profile">${icon("submit")}<span><strong>My public profile</strong><small>Posts, followers, new post</small></span><b aria-hidden="true">&rsaquo;</b></button>` : ""}
       </nav>`;
   }
 
@@ -523,34 +526,125 @@
 
   // ---------- profile ----------
 
+  function isApprovedCreator() {
+    return ["brand", "dj"].includes(account.profile?.account_type) && account.profile?.creator_status === "approved";
+  }
+
+  function mediaUrl(path) {
+    return path && account.client ? account.client.storage.from("media").getPublicUrl(path).data.publicUrl : "";
+  }
+
+  const STATUS_TEXT = {
+    pending: "Waiting for approval. We'll review your profile shortly. Until then it isn't public.",
+    approved: "Approved. Your profile is public: people can follow you and you can post photos and videos.",
+    rejected: "Not approved this time. Update your details and save to send it again.",
+  };
+
   function renderProfile() {
     const profile = account.profile || {};
-    const isBrand = profile.account_type === "brand";
+    const type = profile.account_type || "fan";
+    const isCreator = type === "brand" || type === "dj";
+    const status = isCreator ? profile.creator_status : "";
+    const avatar = mediaUrl(profile.avatar_path);
     ui.content.innerHTML = `
+      ${status && STATUS_TEXT[status] ? `<div class="status-banner status-${esc(status)}">${esc(STATUS_TEXT[status])}</div>` : ""}
       <form class="drawer-form drawer-section" id="profileForm" novalidate>
+        <fieldset class="field segmented segmented-3">
+          <legend>Account type</legend>
+          <label><input type="radio" name="account_type" value="fan" ${isCreator ? "" : "checked"} /><span>Going out</span></label>
+          <label><input type="radio" name="account_type" value="brand" ${type === "brand" ? "checked" : ""} /><span>Brand</span></label>
+          <label><input type="radio" name="account_type" value="dj" ${type === "dj" ? "checked" : ""} /><span>DJ</span></label>
+        </fieldset>
+        <p class="drawer-fine creator-note" ${isCreator ? "hidden" : ""}>Run events or DJ? Pick Brand or DJ to get a public profile people can follow, with posts and your events.</p>
         <label class="field"><span>Your name</span>
           <input name="display_name" maxlength="60" autocomplete="name" value="${esc(profile.display_name || "")}" placeholder="What should we call you?" />
+        </label>
+        <div class="creator-fields" ${isCreator ? "" : "hidden"}>
+          <div class="avatar-field">
+            <span class="avatar avatar-lg">${avatar ? `<img src="${esc(avatar)}" alt="" />` : esc(displayName().slice(0, 1).toUpperCase())}</span>
+            <label class="drawer-secondary avatar-pick">Change photo<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" hidden /></label>
+          </div>
+          <label class="field"><span>Profile name *</span>
+            <input name="brand_name" maxlength="80" value="${esc(profile.brand_name || "")}" placeholder="e.g. The Couples Den or DJ Name" />
+          </label>
+          <label class="field"><span>Username *</span>
+            <input name="username" maxlength="30" autocapitalize="off" autocomplete="off" value="${esc(profile.username || "")}" placeholder="letters, numbers, . and _" />
+          </label>
+          <label class="field"><span>Bio</span>
+            <textarea name="bio" rows="3" maxlength="300" placeholder="What you do, your sound, where to find you">${esc(profile.bio || "")}</textarea>
+          </label>
+        </div>
+        <label class="field"><span>Instagram ${isCreator ? "*" : ""}</span>
+          <input name="instagram" maxlength="100" autocapitalize="off" value="${esc(profile.instagram || "")}" placeholder="@yourhandle" />
+        </label>
+        <p class="drawer-fine creator-fields" ${isCreator ? "" : "hidden"}>Your Instagram links your profile to your events on the map, so your followers see them in Following.</p>
+        <label class="check-row creator-fields" ${isCreator ? "" : "hidden"}>
+          <input type="checkbox" name="terms" ${profile.terms_accepted_at ? "checked" : ""} />
+          <span>I agree to the <a href="terms.html" target="_blank" rel="noopener">terms and community rules</a>. No offensive, abusive or illegal content.</span>
         </label>
         <label class="field"><span>Email</span>
           <input value="${esc(userEmail())}" disabled />
         </label>
-        <fieldset class="field segmented">
-          <legend>Account type</legend>
-          <label><input type="radio" name="account_type" value="fan" ${isBrand ? "" : "checked"} /><span>Going out</span></label>
-          <label><input type="radio" name="account_type" value="brand" ${isBrand ? "checked" : ""} /><span>Event brand</span></label>
-        </fieldset>
-        <div class="brand-fields" ${isBrand ? "" : "hidden"}>
-          <label class="field"><span>Brand name</span>
-            <input name="brand_name" maxlength="80" value="${esc(profile.brand_name || "")}" placeholder="e.g. The Couples Den" />
-          </label>
-        </div>
-        <label class="field"><span>Instagram</span>
-          <input name="instagram" maxlength="100" autocapitalize="off" value="${esc(profile.instagram || "")}" placeholder="@yourhandle" />
-        </label>
         <button class="drawer-primary" type="submit"><span>Save profile</span><span>&rarr;</span></button>
         <p class="form-error" role="alert"></p>
       </form>
-      ${isBrand ? `<button type="button" class="drawer-item drawer-item-solo" data-view="submit">${icon("submit")}<span><strong>Submit an event</strong><small>Send us your next event</small></span><b aria-hidden="true">&rsaquo;</b></button>` : ""}`;
+      ${isApprovedCreator() ? `<button type="button" class="drawer-item drawer-item-solo" data-action="my-public-profile">${icon("profile")}<span><strong>View my public profile</strong><small>Posts, followers, new post</small></span><b aria-hidden="true">&rsaquo;</b></button>` : ""}
+      ${isCreator ? `<button type="button" class="drawer-item drawer-item-solo" data-view="submit">${icon("submit")}<span><strong>Submit an event</strong><small>Send us your next event</small></span><b aria-hidden="true">&rsaquo;</b></button>` : ""}`;
+  }
+
+  async function saveProfile(form) {
+    const errorElement = form.querySelector(".form-error");
+    const button = form.querySelector('button[type="submit"]');
+    const type = form.querySelector('[name="account_type"]:checked')?.value || "fan";
+    const isCreator = type !== "fan";
+    const username = form.elements.username.value.trim().toLowerCase().replace(/^@/, "");
+    const instagram = cleanHandle(form.elements.instagram.value);
+    errorElement.textContent = "";
+    if (isCreator) {
+      if (!form.elements.brand_name.value.trim()) return void (errorElement.textContent = "Add your profile name.");
+      if (!/^[a-z0-9._]{3,30}$/.test(username)) return void (errorElement.textContent = "Usernames are 3 to 30 letters, numbers, dots or underscores.");
+      if (!instagram) return void (errorElement.textContent = "Add your Instagram so we can verify you and link your events.");
+      if (!form.elements.terms.checked) return void (errorElement.textContent = "Agree to the terms to get a public profile.");
+    }
+    button.disabled = true;
+    try {
+      const changes = {
+        display_name: form.elements.display_name.value.trim().slice(0, 60) || null,
+        account_type: type,
+        brand_name: isCreator ? form.elements.brand_name.value.trim().slice(0, 80) : account.profile?.brand_name || null,
+        username: isCreator ? username : account.profile?.username || null,
+        bio: isCreator ? form.elements.bio.value.trim().slice(0, 300) || null : account.profile?.bio || null,
+        instagram: instagram || null,
+        terms_accepted_at: isCreator ? account.profile?.terms_accepted_at || new Date().toISOString() : account.profile?.terms_accepted_at || null,
+      };
+      const avatarFile = form.elements.avatar?.files?.[0];
+      if (avatarFile) {
+        const blob = await resizeImage(avatarFile, 600);
+        const path = `${account.session.user.id}/avatar-${Date.now()}.jpg`;
+        const upload = await account.client.storage.from("media").upload(path, blob, { contentType: "image/jpeg" });
+        if (upload.error) throw upload.error;
+        changes.avatar_path = path;
+      }
+      const { data, error } = await account.client
+        .from("profiles")
+        .update({ ...changes, updated_at: new Date().toISOString() })
+        .eq("id", account.session.user.id)
+        .select("*")
+        .single();
+      if (error) {
+        if (/profiles_username_key|duplicate/i.test(error.message)) throw new Error("That username is taken. Try another.");
+        throw error;
+      }
+      const wasType = account.profile?.account_type;
+      account.profile = data;
+      app.showToast(isCreator && data.creator_status === "pending" && wasType !== type ? "Saved. Your profile is waiting for approval." : "Profile saved");
+      renderProfile();
+      document.dispatchEvent(new CustomEvent("vibe:auth"));
+    } catch (error) {
+      errorElement.textContent = friendlyError(error);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   // ---------- preferences ----------
@@ -624,11 +718,10 @@
           : "Reminders are sent by the iPhone app."}</p>
         <button type="button" class="drawer-secondary" data-view="preferences">Reminder preferences</button>
 
-        <h3 class="drawer-heading">Newsletter</h3>
-        <button type="button" class="drawer-secondary" data-action="newsletter">Get the weekly newsletter</button>
-
         <h3 class="drawer-heading">About</h3>
         <a class="drawer-link" href="privacy.html" target="_blank" rel="noopener">Privacy policy <span>&nearr;</span></a>
+        <a class="drawer-link" href="terms.html" target="_blank" rel="noopener">Terms and community rules <span>&nearr;</span></a>
+        ${signedIn() ? '<button type="button" class="drawer-secondary" data-action="blocked">Blocked accounts</button>' : ""}
         <a class="drawer-link" href="mailto:vibeconnoisseur@outlook.com">Contact us <span>&nearr;</span></a>
         <a class="drawer-link" href="https://www.instagram.com/thevibeconnoisseurr/" target="_blank" rel="noopener">Instagram <span>&nearr;</span></a>
 
@@ -801,20 +894,54 @@
   // ---------- approvals (admin only) ----------
 
   async function renderAdmin() {
-    ui.content.innerHTML = '<div class="drawer-section"><p class="drawer-fine">Loading submissions...</p></div>';
-    let submissions = [];
+    ui.content.innerHTML = '<div class="drawer-section"><p class="drawer-fine">Loading...</p></div>';
+    let result;
     try {
-      const result = await api("/api/admin");
-      submissions = result.submissions || [];
-      account.pendingCount = submissions.length;
-      updateMenuButton();
+      result = await api("/api/admin");
     } catch (error) {
       ui.content.innerHTML = `<div class="drawer-section"><p class="drawer-fine">${esc(error.status === 403 ? "This area is only for the Where's The Vibe team." : friendlyError(error))}</p></div>`;
       return;
     }
+    const submissions = result.submissions || [];
+    const creators = result.creators || [];
+    const reports = result.reports || [];
+    account.pendingCount = submissions.length + creators.length + reports.length;
+    updateMenuButton();
+    const actions = (kind, buttons) => `<div class="review-actions">${buttons.map(([action, label, primary]) =>
+      `<button type="button" class="${primary ? "drawer-primary" : "drawer-secondary"}" data-review="${action}" data-kind="${kind}"><span>${label}</span></button>`).join("")}</div>`;
+
     ui.content.innerHTML = `<div class="drawer-section">
-      <p class="drawer-lead">${submissions.length ? `${submissions.length} waiting for review. Approved events appear on the map within a few minutes.` : "All caught up. New submissions will show here."}</p>
-      ${submissions.map((row) => `
+      <p class="drawer-lead">${account.pendingCount ? `${account.pendingCount} waiting for review.` : "All caught up."}</p>
+
+      <h3 class="drawer-heading">Reports ${reports.length ? `(${reports.length})` : ""}</h3>
+      ${reports.length ? reports.map((row) => `
+        <article class="review-card" data-id="${esc(row.id)}">
+          ${row.preview_url ? `<img src="${esc(row.preview_url)}" alt="" loading="lazy" />` : ""}
+          <div>
+            <p class="review-meta">Reported ${esc(new Date(row.created_at).toLocaleDateString("en-GB"))}</p>
+            <h4>${esc(row.posts ? "Post" : "Profile")}${row.profiles?.username ? `: @${esc(row.profiles.username)}` : ""}</h4>
+            <p class="review-description">"${esc(row.reason)}"</p>
+            ${row.posts?.caption ? `<p>${esc(row.posts.caption.slice(0, 200))}</p>` : ""}
+            ${actions("report", row.post_id ? [["remove", "Remove post", true], ["dismiss", "Keep it"]] : [["dismiss", "Mark as handled", true]])}
+          </div>
+        </article>`).join("") : '<p class="drawer-fine">No open reports. Apple expects reports to be dealt with within 24 hours.</p>'}
+
+      <h3 class="drawer-heading">Brand and DJ profiles ${creators.length ? `(${creators.length})` : ""}</h3>
+      ${creators.length ? creators.map((row) => `
+        <article class="review-card" data-id="${esc(row.id)}">
+          ${row.avatar_url ? `<img src="${esc(row.avatar_url)}" alt="" loading="lazy" class="is-round" />` : ""}
+          <div>
+            <p class="review-meta">${esc(row.account_type === "dj" ? "DJ" : "Brand")}</p>
+            <h4>${esc(row.brand_name || row.display_name || "")}</h4>
+            <p>@${esc(row.username || "")} / Instagram ${esc(row.instagram || "none")}</p>
+            ${row.bio ? `<p class="review-description">${esc(row.bio)}</p>` : ""}
+            ${row.instagram ? `<a class="drawer-link" href="https://www.instagram.com/${esc(String(row.instagram).replace(/^@/, ""))}/" target="_blank" rel="noopener">Check their Instagram <span>&nearr;</span></a>` : ""}
+            ${actions("creator", [["approve", "Approve", true], ["reject", "Reject"]])}
+          </div>
+        </article>`).join("") : '<p class="drawer-fine">No profiles waiting.</p>'}
+
+      <h3 class="drawer-heading">Events ${submissions.length ? `(${submissions.length})` : ""}</h3>
+      ${submissions.length ? submissions.map((row) => `
         <article class="review-card" data-id="${esc(row.id)}">
           ${row.flyer_url ? `<img src="${esc(row.flyer_url)}" alt="" loading="lazy" />` : ""}
           <div>
@@ -825,23 +952,30 @@
             ${row.tags ? `<p class="review-meta">${esc(row.tags)}</p>` : ""}
             <p class="review-meta">${esc(row.instagram || "")} ${esc(row.contact_email || "")}</p>
             ${row.ticket_url ? `<a class="drawer-link" href="${esc(row.ticket_url)}" target="_blank" rel="noopener">Check ticket link <span>&nearr;</span></a>` : '<p class="review-meta">No ticket link</p>'}
-            <div class="review-actions">
-              <button type="button" class="drawer-primary" data-review="approve"><span>Approve</span></button>
-              <button type="button" class="drawer-secondary" data-review="reject">Reject</button>
-            </div>
+            ${actions("submission", [["approve", "Approve", true], ["reject", "Reject"]])}
           </div>
-        </article>`).join("")}
+        </article>`).join("") : '<p class="drawer-fine">No events waiting.</p>'}
     </div>`;
   }
 
-  async function review(card, action) {
-    const note = action === "reject" ? window.prompt("Reason (shown to the brand, optional):", "") : "";
+  const DONE_TEXT = {
+    "submission:approve": "Approved. It will be on the map shortly.",
+    "submission:reject": "Rejected.",
+    "creator:approve": "Approved. Their profile is now public.",
+    "creator:reject": "Rejected.",
+    "report:remove": "Post removed.",
+    "report:dismiss": "Marked as handled.",
+  };
+
+  async function review(card, action, kind) {
+    const note = kind === "submission" && action === "reject" ? window.prompt("Reason (shown to the brand, optional):", "") : "";
     if (note === null) return;
+    if (kind === "report" && action === "remove" && !window.confirm("Remove this post for everyone?")) return;
     card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     try {
-      await api("/api/admin", { method: "POST", body: JSON.stringify({ id: card.dataset.id, action, note }) });
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ kind, id: card.dataset.id, action, note }) });
       card.classList.add("is-done");
-      card.querySelector(".review-actions").innerHTML = `<p class="review-meta">${action === "approve" ? "Approved. It will be on the map shortly." : "Rejected."}</p>`;
+      card.querySelector(".review-actions").innerHTML = `<p class="review-meta">${DONE_TEXT[`${kind}:${action}`] || "Done."}</p>`;
       account.pendingCount = Math.max(0, account.pendingCount - 1);
       updateMenuButton();
     } catch (error) {
@@ -864,15 +998,24 @@
     const target = event.target.closest("[data-view], [data-action], [data-review], #otpResend, #otpChange, #appleSignIn, #signOut, #deleteAccount, #showFavourites");
     if (!target) return;
     if (target.dataset.view) return showView(target.dataset.view);
-    if (target.dataset.review) return review(target.closest(".review-card"), target.dataset.review);
+    if (target.dataset.review) return review(target.closest(".review-card"), target.dataset.review, target.dataset.kind || "submission");
     if (target.dataset.action === "saved") {
       closeDrawer();
       if (!app.state.savedOnly) document.querySelector("#savedButton").click();
       return;
     }
-    if (target.dataset.action === "newsletter") {
+    if (target.dataset.action === "following") {
       closeDrawer();
-      return setTimeout(app.openNewsletter, 260);
+      location.hash = "#following";
+      return;
+    }
+    if (target.dataset.action === "my-public-profile") {
+      closeDrawer();
+      return window.VibeSocial?.openProfile(account.profile.id);
+    }
+    if (target.dataset.action === "blocked") {
+      closeDrawer();
+      return window.VibeSocial?.openBlocked();
     }
     if (target.id === "otpResend") return sendCode(account.otpEmail, ui.content.querySelector(".form-error"), target);
     if (target.id === "otpChange") {
@@ -897,28 +1040,21 @@
     if (form.id === "emailForm") return sendCode(form.querySelector("#signinEmail").value, errorElement, button);
     if (form.id === "otpForm") return verifyCode(form.querySelector("#otpCode").value, errorElement, button);
     if (form.id === "submitForm") return submitEvent(form);
-    if (form.id === "profileForm") {
-      const type = form.querySelector('[name="account_type"]:checked')?.value || "fan";
-      button.disabled = true;
-      const saved = await updateProfile({
-        display_name: form.elements.display_name.value.trim().slice(0, 60) || null,
-        account_type: type,
-        brand_name: type === "brand" ? form.elements.brand_name.value.trim().slice(0, 80) || null : null,
-        instagram: cleanHandle(form.elements.instagram.value) || null,
-      });
-      button.disabled = false;
-      if (saved) {
-        app.showToast("Profile saved");
-        renderProfile();
-      }
-    }
+    if (form.id === "profileForm") return saveProfile(form);
   });
 
   ui.content.addEventListener("change", (event) => {
     const form = event.target.closest("form");
     if (form?.id === "prefsForm") return onPrefsChange(form);
     if (event.target.name === "account_type") {
-      form.querySelector(".brand-fields").hidden = event.target.value !== "brand";
+      const creator = event.target.value !== "fan";
+      form.querySelectorAll(".creator-fields").forEach((element) => { element.hidden = !creator; });
+      form.querySelector(".creator-note").hidden = creator;
+    }
+    if (event.target.name === "avatar") {
+      const file = event.target.files?.[0];
+      const holder = form.querySelector(".avatar-lg");
+      if (file && holder) holder.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="" />`;
     }
     if (event.target.name === "flyer") {
       const file = event.target.files?.[0];
@@ -935,8 +1071,15 @@
     await app.ready;
     applyFavouritesOnOpen();
     await initSupabase();
+    document.dispatchEvent(new CustomEvent("vibe:accounts-ready"));
     if (account.prefs.openWithFavourites) applyFavouritesOnOpen();
   })();
 
+  account.showView = (name) => { openDrawer(name); };
+  account.isApprovedCreator = isApprovedCreator;
+  account.resizeImage = resizeImage;
+  account.mediaUrl = mediaUrl;
+  account.friendlyError = friendlyError;
+  account.signedIn = signedIn;
   window.VibeAccount = account;
 })();
