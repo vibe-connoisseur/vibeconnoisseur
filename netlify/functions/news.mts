@@ -49,10 +49,21 @@ function igUserId(): string {
   return (Netlify.env.get("IG_USER_ID") || "").trim();
 }
 
+// Instagram tokens start with "IG" and only work on graph.instagram.com.
+// Facebook-style tokens (system user, Facebook login) use graph.facebook.com.
+function isInstagramToken(token: string): boolean {
+  return /^IG/.test(token);
+}
+
+function cleanToken(value: string): string {
+  return value.trim().replace(/^["']|["']$/g, "").replace(/\s+/g, "");
+}
+
 async function currentToken(blobs: ReturnType<typeof store>): Promise<string> {
-  const envToken = (Netlify.env.get("IG_ACCESS_TOKEN") || "").trim();
-  // Unified login tokens are managed in Meta's dashboard, not refreshed here.
-  if (!blobs || igUserId()) return envToken;
+  const envToken = cleanToken(Netlify.env.get("IG_ACCESS_TOKEN") || "");
+  // Only Instagram tokens can be refreshed here. Facebook-style tokens are
+  // managed in Meta's dashboard (system-user tokens never expire).
+  if (!blobs || !isInstagramToken(envToken)) return envToken;
   let saved: { token: string; refreshedAt: number; source: string } | null = null;
   try {
     saved = await blobs.get("token", { type: "json" });
@@ -92,9 +103,9 @@ function cleanCaption(caption: string): { title: string; text: string } {
 async function fetchNews(token: string): Promise<NewsItem[]> {
   const fields = "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp";
   const userId = igUserId();
-  const url = userId
-    ? `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(userId)}/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`
-    : `https://graph.instagram.com/me/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`;
+  const url = isInstagramToken(token) || !userId
+    ? `https://graph.instagram.com/${GRAPH_VERSION}/me/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`
+    : `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(userId)}/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`;
   const response = await fetch(url);
   const body = await response.json() as { data?: Array<Record<string, string>>; error?: { message?: string } };
   if (!response.ok || !Array.isArray(body.data)) throw new Error(body.error?.message || `Instagram returned ${response.status}`);
