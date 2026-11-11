@@ -434,12 +434,12 @@
     ui.content.innerHTML = `
       <div class="drawer-section">
         <p class="drawer-lead">${waitingForCode
-          ? `We sent a 6-digit code to <strong>${esc(account.otpEmail)}</strong>. It can take a minute to arrive.`
+          ? `We sent a sign-in code to <strong>${esc(account.otpEmail)}</strong>. It can take a minute to arrive.`
           : "No password needed. Enter your email and we'll send you a code."}</p>
         ${waitingForCode ? `
           <form class="drawer-form" id="otpForm" novalidate>
             <label class="field"><span>Code</span>
-              <input id="otpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="123456" required />
+              <input id="otpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" pattern="[0-9]*" placeholder="Enter the code" required />
             </label>
             <button class="drawer-primary" type="submit"><span>Sign in</span><span>&rarr;</span></button>
             <p class="form-error" role="alert"></p>
@@ -486,8 +486,9 @@
 
   async function verifyCode(code, errorElement, button) {
     const token = String(code || "").replace(/\D/g, "");
-    if (token.length !== 6) {
-      errorElement.textContent = "Enter the 6-digit code from the email.";
+    // Supabase sends 6 to 10 digits depending on the project's OTP length setting.
+    if (token.length < 6 || token.length > 10) {
+      errorElement.textContent = "Enter the full code from the email.";
       return;
     }
     button.disabled = true;
