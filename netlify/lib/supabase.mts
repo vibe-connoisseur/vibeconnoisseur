@@ -59,3 +59,9 @@ export function flyerPublicUrl(path: string | null | undefined): string {
   if (!path || !url) return "";
   return `${url}/storage/v1/object/public/flyers/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
+
+export function mediaPublicUrl(path: string | null | undefined): string {
+  const { url } = supabaseEnv();
+  if (!path || !url) return "";
+  return `${url}/storage/v1/object/public/media/${path.split("/").map(encodeURIComponent).join("/")}`;
+}

@@ -8,7 +8,7 @@
     <title>Where's The Vibe | London Event Map</title>
     <link rel="preload" href="assets/fonts/norwester.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=9" />
+    <link rel="stylesheet" href="styles.css?v=10" />
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -23,9 +23,9 @@
             <span class="wordmark-name"><strong>Vibe</strong><strong>Connoisseur</strong></span>
           </a>
         </div>
-        <div class="header-meta">
-          <span>London</span>
-          <span>51.5072° N</span>
+        <div class="live-status header-status" id="syncStatus" role="status" aria-live="polite">
+          <span class="status-pulse"></span>
+          <span>Reading the guest list</span>
         </div>
         <button class="refresh-button" id="refreshButton" type="button" aria-label="Refresh events">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.3 9A7 7 0 0 0 6.1 6.1L4 8m16 8-2.1 1.9A7 7 0 0 1 5.7 15" /></svg>
@@ -33,19 +33,40 @@
         </button>
       </header>
 
+      <nav class="top-tabs" id="topTabs" aria-label="Sections">
+        <a href="#discover" data-tab="discover" class="is-active">Discover</a>
+        <a href="#tonight" data-tab="tonight">Tonight</a>
+        <a href="#weekend" data-tab="weekend">This weekend</a>
+        <a href="#following" data-tab="following">Following</a>
+        <a href="#map" data-tab="map">Map</a>
+      </nav>
+
       <main id="top">
-        <section class="hero" aria-labelledby="pageTitle">
-          <h1 id="pageTitle"><span>Where’s</span><span>the vibe?</span></h1>
-          <div class="hero-aside">
-            <p>London’s parties, festivals and live moments. Pinned, sorted and ready when you are.</p>
-            <div class="live-status" id="syncStatus" role="status" aria-live="polite">
-              <span class="status-pulse"></span>
-              <span>Reading the guest list</span>
+        <section class="view" id="view-discover" data-view="discover">
+          <section class="news" id="newsSection" aria-labelledby="newsTitle" hidden>
+            <div class="section-head">
+              <h2 id="newsTitle">Vibe News</h2>
+              <div class="news-filters" id="newsFilters" role="tablist" aria-label="News type"></div>
             </div>
-          </div>
+            <div class="news-rail" id="newsRail"></div>
+          </section>
+          <div class="flyer-showcases" id="flyerShowcases"></div>
+          <section class="event-feed" id="discoverFeed" aria-label="Coming up"></section>
         </section>
 
-        <div class="flyer-showcases" id="flyerShowcases"></div>
+        <section class="view" id="view-tonight" data-view="tonight" hidden>
+          <div class="event-feed" id="tonightFeed"></div>
+        </section>
+
+        <section class="view" id="view-weekend" data-view="weekend" hidden>
+          <div class="event-feed" id="weekendFeed"></div>
+        </section>
+
+        <section class="view" id="view-following" data-view="following" hidden>
+          <div id="followingView"></div>
+        </section>
+
+        <section class="view" id="view-map" data-view="map" hidden>
 
         <section class="filter-bar" aria-label="Filter London events">
           <div class="filter-heading">
@@ -112,39 +133,23 @@
           <h2 id="emptyTitle">Nothing matches that combination.</h2>
           <button type="button" id="emptyReset">Clear the filters</button>
         </section>
+        </section>
       </main>
 
       <footer>
         <p>Made for plans that leave the group chat.</p>
-        <p><button class="footer-signup" id="openSignup" type="button">Get the weekly newsletter</button></p>
-        <p><a class="footer-signup" href="privacy.html">Privacy</a></p>
+        <p><a class="footer-signup" href="privacy.html">Privacy</a> / <a class="footer-signup" href="terms.html">Terms</a></p>
       </footer>
     </div>
 
-    <div class="signup-overlay" id="signupOverlay" hidden>
-      <section class="signup-modal" role="dialog" aria-modal="true" aria-labelledby="signupTitle" aria-describedby="signupText">
-        <button class="signup-close" id="signupClose" type="button" aria-label="Close newsletter sign-up">&times;</button>
-        <div class="signup-body" id="signupForm">
-          <p class="signup-label">Weekly drop / Every Thursday</p>
-          <h2 id="signupTitle">Get the vibe in your inbox</h2>
-          <p class="signup-text" id="signupText">The one to book, this weekend's best events and new concert on-sales across London. One email a week.</p>
-          <form id="signupFormEl" novalidate>
-            <label class="signup-field">
-              <span>Email address</span>
-              <input type="email" id="signupEmail" name="email" placeholder="you@email.com" autocomplete="email" inputmode="email" required />
-            </label>
-            <input class="signup-honeypot" type="text" name="website" id="signupWebsite" tabindex="-1" autocomplete="off" aria-hidden="true" />
-            <button class="signup-submit" id="signupSubmit" type="submit"><span>I'm in</span><span aria-hidden="true">↗</span></button>
-            <p class="signup-error" id="signupError" role="alert"></p>
-          </form>
-          <p class="signup-fine">Unsubscribe any time. No spam, just the plans.</p>
+    <div class="sheet-overlay" id="sheetOverlay" hidden>
+      <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Profile">
+        <div class="sheet-head">
+          <button class="sheet-back" id="sheetBack" type="button">&larr; Back</button>
+          <p class="sheet-title" id="sheetTitle"></p>
+          <button class="sheet-close" id="sheetClose" type="button" aria-label="Close">&times;</button>
         </div>
-        <div class="signup-body" id="signupDone" hidden>
-          <p class="signup-label">Locked in</p>
-          <h2>You're on the list</h2>
-          <p class="signup-text">First drop lands Thursday. Until then, the map is all yours.</p>
-          <button class="signup-submit" id="signupDoneButton" type="button"><span>Back to the map</span><span aria-hidden="true">↘</span></button>
-        </div>
+        <div class="sheet-body" id="sheetBody"></div>
       </section>
     </div>
 
@@ -170,7 +175,9 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="assets/vendor/supabase.js?v=2.119.0" defer></script>
     <script src="native.js?v=2" defer></script>
-    <script src="app.js?v=10" defer></script>
-    <script src="account.js?v=2" defer></script>
+    <script src="app.js?v=11" defer></script>
+    <script src="account.js?v=3" defer></script>
+    <script src="social.js?v=1" defer></script>
+    <script src="views.js?v=1" defer></script>
   </body>
 </html>

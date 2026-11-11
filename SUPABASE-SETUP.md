@@ -15,6 +15,10 @@ Takes about 30 minutes. Steps 1 to 6 are easiest on a laptop.
 1. In the left menu, open **SQL Editor**, then **New query**.
 2. Open `supabase/setup.sql` from the repo on GitHub, copy all of it, paste it in, and click **Run**. It should say "Success. No rows returned".
 
+### 2b. Profiles, follows and posts (added November 2026)
+
+Run `supabase/2-social.sql` the same way (SQL Editor, New query, paste, Run). It adds Brand and DJ profiles, follows, photo and video posts, reports and blocks. It's safe to run on a project that already has `setup.sql`.
+
 ## 3. Make sign-in emails send a code
 
 The app asks for a 6-digit code, so the emails need to include it.

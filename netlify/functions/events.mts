@@ -19,6 +19,7 @@ type SheetEvent = {
   flyerImageUrl: string;
   flyerUrl: string;
   description: string;
+  instagram: string[];
   source: "sheet" | "submission";
 };
 
@@ -250,6 +251,15 @@ async function geocodePostcodes(postcodes: string[]): Promise<{
   return { coordinates, approximate };
 }
 
+// "@brand, @dj.name" or Instagram links -> ["brand", "dj.name"]. Used to link
+// events to the Brand and DJ profiles people follow.
+function parseHandles(value: string): string[] {
+  return [...new Set(String(value)
+    .split(/[,\s]+/)
+    .map((part) => part.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, "").replace(/[/?#].*$/, "").replace(/^@/, "").toLowerCase())
+    .filter((handle) => /^[a-z0-9._]{2,30}$/.test(handle) && handle !== "unknown"))];
+}
+
 // Approved brand submissions, reshaped to look like sheet rows so they go
 // through the same checks, geocoding and duplicate removal.
 async function approvedSubmissions(): Promise<Array<{ row: number; record: Record<string, string> }>> {
@@ -279,6 +289,7 @@ async function approvedSubmissions(): Promise<Array<{ row: number; record: Recor
           flyer_image_url: flyerPublicUrl(row.flyer_path),
           ticket_link: row.ticket_url || "",
           description: row.description || "",
+          instagram: row.instagram || "",
           __source: "submission",
         },
       };
@@ -393,6 +404,7 @@ export default async (request: Request) => {
         flyerImageUrl,
         flyerUrl: flyerImageUrl,
         description: (record.description || "").trim().slice(0, 600),
+        instagram: parseHandles(record.instagram || ""),
         source: record.__source === "submission" ? "submission" : "sheet",
       });
     });
