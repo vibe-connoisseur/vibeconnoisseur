@@ -6,10 +6,13 @@
 // Posts without one of these tags are left out, unless nothing is tagged
 // yet, in which case the latest posts show as "Latest".
 //
-// Needs IG_ACCESS_TOKEN in Netlify (a long-lived Instagram token, see
-// INSTAGRAM-SETUP.md). Tokens last 60 days; this function swaps it for a
-// fresh one every week and keeps it in Netlify Blobs, so it never expires
-// while the site is in use.
+// Needs IG_ACCESS_TOKEN in Netlify (see INSTAGRAM-SETUP.md). Two kinds work:
+// - Meta's newer "Unified login" token, plus IG_USER_ID (the Instagram
+//   account ID shown next to the account). Reads graph.facebook.com.
+//   Use a token that never expires (system user) where Meta offers one.
+// - An older Instagram Login token (starts with "IG"), no IG_USER_ID needed.
+//   It lasts 60 days, so this function swaps it for a fresh one every week
+//   and keeps it in Netlify Blobs.
 import { getStore } from "@netlify/blobs";
 
 type Category = "hot" | "events" | "concerts" | "latest";
@@ -40,9 +43,16 @@ function store() {
   }
 }
 
+const GRAPH_VERSION = "v21.0";
+
+function igUserId(): string {
+  return (Netlify.env.get("IG_USER_ID") || "").trim();
+}
+
 async function currentToken(blobs: ReturnType<typeof store>): Promise<string> {
-  const envToken = Netlify.env.get("IG_ACCESS_TOKEN") || "";
-  if (!blobs) return envToken;
+  const envToken = (Netlify.env.get("IG_ACCESS_TOKEN") || "").trim();
+  // Unified login tokens are managed in Meta's dashboard, not refreshed here.
+  if (!blobs || igUserId()) return envToken;
   let saved: { token: string; refreshedAt: number; source: string } | null = null;
   try {
     saved = await blobs.get("token", { type: "json" });
@@ -81,7 +91,11 @@ function cleanCaption(caption: string): { title: string; text: string } {
 
 async function fetchNews(token: string): Promise<NewsItem[]> {
   const fields = "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp";
-  const response = await fetch(`https://graph.instagram.com/me/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`);
+  const userId = igUserId();
+  const url = userId
+    ? `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(userId)}/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`
+    : `https://graph.instagram.com/me/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`;
+  const response = await fetch(url);
   const body = await response.json() as { data?: Array<Record<string, string>>; error?: { message?: string } };
   if (!response.ok || !Array.isArray(body.data)) throw new Error(body.error?.message || `Instagram returned ${response.status}`);
 
