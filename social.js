@@ -169,7 +169,7 @@
         <button type="button" class="host-open" data-profile="${esc(creator.id)}">${avatarMarkup(creator)}<span><strong>${esc(creator.name)}</strong><small>${typeLabel(creator)} / @${esc(creator.username)}</small></span></button>
         ${followButton(creator, "is-small")}
       </div>`).join("")}
-      ${others.map((handle) => `<a class="host-ig" href="https://www.instagram.com/${esc(handle)}/" target="_blank" rel="noopener noreferrer">@${esc(handle)} <span>&nearr;</span></a>`).join("")}
+      ${others.map((handle) => `<a class="host-ig" href="https://www.instagram.com/${esc(handle)}/" target="_blank" rel="noopener noreferrer">@${esc(handle)} ${app.iconSvg("arrow-up-right")}</a>`).join("")}
     </div>`;
   };
 
@@ -191,7 +191,7 @@
     const creator = social.creators.get(post.creator_id);
     return `<button type="button" class="post-tile" data-post="${esc(post.id)}" aria-label="Post by ${esc(creator?.name || "")}">
       ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy" />` : '<span class="post-tile-blank"></span>'}
-      ${first.type === "video" ? '<span class="post-badge" aria-hidden="true">&#9654;</span>' : post.media.length > 1 ? '<span class="post-badge" aria-hidden="true">&#10064;</span>' : ""}
+      ${first.type === "video" ? `<span class="post-badge">${app.iconSvg("play")}</span>` : post.media.length > 1 ? `<span class="post-badge">${app.iconSvg("stack")}</span>` : ""}
     </button>`;
   }
 
@@ -531,7 +531,7 @@
 
       const drawPreviews = () => {
         previews.innerHTML = files.map((file, index) => `<span class="composer-preview">
-          ${file.type.startsWith("video") ? `<video src="${URL.createObjectURL(file)}" muted playsinline></video><b>&#9654;</b>` : `<img src="${URL.createObjectURL(file)}" alt="" />`}
+          ${file.type.startsWith("video") ? `<video src="${URL.createObjectURL(file)}" muted playsinline></video><b>${app.iconSvg("play")}</b>` : `<img src="${URL.createObjectURL(file)}" alt="" />`}
           <button type="button" data-remove-file="${index}" aria-label="Remove">&times;</button>
         </span>`).join("");
       };

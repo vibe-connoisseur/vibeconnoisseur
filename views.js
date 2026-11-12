@@ -5,13 +5,19 @@
   if (!app) return;
   const { safeText, safeUrl, colorFor, native } = app;
 
-  const TABS = ["discover", "tonight", "weekend", "following", "map"];
+  const TABS = ["discover", "tonight", "weekend", "following", "map", "search"];
+  // Pages reached from the menu rather than a tab.
+  const PAGES = ["saved"];
+  const VIEWS = [...TABS, ...PAGES];
   const NEWS_LABELS = { hot: "Hot topics", events: "Event news", concerts: "Concert news", latest: "Latest" };
   const DISCOVER_LIMIT = 30;
 
   const ui = {
     tabs: document.querySelector("#topTabs"),
-    views: Object.fromEntries(TABS.map((tab) => [tab, document.querySelector(`#view-${tab}`)])),
+    views: Object.fromEntries(VIEWS.map((tab) => [tab, document.querySelector(`#view-${tab}`)])),
+    savedFeed: document.querySelector("#savedFeed"),
+    searchInput: document.querySelector("#searchInput"),
+    searchResults: document.querySelector("#searchResults"),
     discoverFeed: document.querySelector("#discoverFeed"),
     tonightFeed: document.querySelector("#tonightFeed"),
     weekendFeed: document.querySelector("#weekendFeed"),
@@ -73,7 +79,7 @@
         <span class="feed-info">
           <span class="feed-date">${safeText(app.formatFilterDate(event.date))} / ${safeText(event.type[0])}</span>
           <strong>${safeText(event.title)}</strong>
-          <span class="feed-venue">${safeText(event.location.split(",")[0])}</span>
+          <span class="feed-venue">${safeText(app.placeLine(event))}</span>
           <span class="feed-price">${event.price ? `From ${safeText(event.price)}` : "Price TBC"}</span>
         </span>
       </button>
@@ -134,6 +140,55 @@
       : emptyFeed("Nothing listed this weekend yet", "New events land every week. Have a look at the map.", ["Open the map", "#map"])}`;
   }
 
+  function renderSaved() {
+    const events = app.savedEvents();
+    ui.savedFeed.innerHTML = `${sectionHead("Saved", events.length)}${events.length
+      ? groupedFeed(events)
+      : emptyFeed("No saved events yet", "Tap the heart on any event to save it. You'll get a reminder before it starts.", ["Find something", "#discover"])}`;
+  }
+
+  // ---------- search ----------
+
+  function searchText(event) {
+    return [event.title, event.location, event.postcode, event.region, event.description, ...(event.type || []), ...(event.tags || []), ...(event.instagram || [])]
+      .join(" ").toLowerCase();
+  }
+
+  function renderSearch() {
+    const query = (ui.searchInput.value || "").trim().toLowerCase();
+    if (!query) {
+      const types = [...new Set(upcoming().flatMap((event) => event.type))].sort();
+      ui.searchResults.innerHTML = `<p class="search-hint">Search events, venues, postcodes, music, brands and DJs.</p>
+        <div class="search-chips">${types.map((type) => `<button type="button" class="chip-button" data-search="${safeText(type)}" style="--event-color:${colorFor(type)}"><i></i>${safeText(type)}</button>`).join("")}</div>`;
+      return;
+    }
+    const words = query.split(/\s+/).filter(Boolean);
+    const events = upcoming().filter((event) => {
+      const text = searchText(event);
+      return words.every((word) => text.includes(word));
+    });
+    const social = window.VibeSocial?.state;
+    const creators = social ? [...social.creators.values()].filter((creator) => !social.blocks.has(creator.id)
+      && words.every((word) => `${creator.name} ${creator.username} ${creator.instagram} ${creator.bio || ""}`.toLowerCase().includes(word))) : [];
+    ui.searchResults.innerHTML = `
+      ${creators.length ? `${sectionHead("Brands and DJs", creators.length)}<div class="creator-list">${creators.slice(0, 8).map((creator) => `
+        <div class="creator-card"><button type="button" class="creator-open" data-profile="${safeText(creator.id)}">
+          <span class="avatar avatar-md">${safeText((creator.name || "?").slice(0, 1).toUpperCase())}</span>
+          <span><strong>${safeText(creator.name)}</strong><small>${creator.account_type === "dj" ? "DJ" : "Brand"} / @${safeText(creator.username)}</small></span>
+        </button></div>`).join("")}</div>` : ""}
+      ${sectionHead("Events", events.length)}
+      ${events.length ? groupedFeed(events) : emptyFeed("No events match", "Try a venue, a postcode like SE15, or a sound like Amapiano.")}`;
+  }
+
+  let searchTimer = null;
+  ui.searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderSearch, 120);
+  });
+  ui.searchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") ui.searchInput.blur();
+  });
+
   function renderFollowing() {
     if (window.VibeSocial) window.VibeSocial.renderFollowing(ui.following);
     else ui.following.innerHTML = emptyFeed("Following", "Loading...");
@@ -144,6 +199,8 @@
     if (current === "tonight") renderTonight();
     if (current === "weekend") renderWeekend();
     if (current === "following") renderFollowing();
+    if (current === "saved") renderSaved();
+    if (current === "search") renderSearch();
   }
 
   // ---------- Vibe News ----------
@@ -172,7 +229,7 @@
     const items = news.filter((item) => newsFilter === "all" || item.category === newsFilter);
     ui.newsRail.innerHTML = items.map((item) => `
       <a class="news-card" href="${safeText(item.permalink)}" target="_blank" rel="noopener noreferrer">
-        <span class="news-media"><img src="${safeText(item.image)}" alt="" loading="lazy" />${item.type === "VIDEO" ? '<span class="news-play" aria-hidden="true">&#9654;</span>' : ""}</span>
+        <span class="news-media"><img src="${safeText(item.image)}" alt="" loading="lazy" />${item.type === "VIDEO" ? `<span class="news-play">${app.iconSvg("play")}</span>` : ""}</span>
         <span class="news-label">${safeText(NEWS_LABELS[item.category] || "News")} / ${safeText(timeAgo(item.timestamp))}</span>
         <strong>${safeText(item.title || "View on Instagram")}</strong>
       </a>`).join("");
@@ -194,11 +251,12 @@
   // ---------- tabs ----------
 
   function showTab(tab, { scroll = true } = {}) {
-    if (!TABS.includes(tab)) tab = "discover";
+    if (!VIEWS.includes(tab)) tab = "discover";
     current = tab;
-    TABS.forEach((name) => {
+    VIEWS.forEach((name) => {
       ui.views[name].hidden = name !== tab;
       const link = ui.tabs.querySelector(`[data-tab="${name}"]`);
+      if (!link) return;
       link.classList.toggle("is-active", name === tab);
       if (name === tab) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
@@ -211,13 +269,15 @@
       });
     }
     renderCurrent();
-    ui.tabs.querySelector(".is-active")?.scrollIntoView({ block: "nearest", inline: "center" });
+    const active = ui.tabs.querySelector(".is-active");
+    if (active) ui.tabs.scrollTo({ left: active.offsetLeft - (ui.tabs.clientWidth - active.offsetWidth) / 2, behavior: scroll ? "smooth" : "auto" });
     if (scroll) window.scrollTo({ top: 0 });
+    if (tab === "search") setTimeout(() => ui.searchInput.focus({ preventScroll: true }), 150);
   }
 
   function tabFromHash() {
     const tab = location.hash.replace(/^#\/?/, "");
-    return TABS.includes(tab) ? tab : null;
+    return VIEWS.includes(tab) ? tab : null;
   }
 
   window.addEventListener("hashchange", () => {
@@ -243,7 +303,19 @@
     if (open) return app.openEventDetail(open.dataset.eventId);
     const save = event.target.closest(".feed-save");
     if (save) {
-      app.toggleSaved(save.dataset.saveId).then(renderCurrent);
+      app.toggleSaved(save.dataset.saveId).then(() => {
+        if (current === "saved") return renderSaved();
+        const event = app.findEvent(save.dataset.saveId);
+        const saved = Boolean(event && app.isSaved(event));
+        save.classList.toggle("is-saved", saved);
+        save.setAttribute("aria-pressed", String(saved));
+      });
+      return;
+    }
+    const searchChip = event.target.closest("[data-search]");
+    if (searchChip) {
+      ui.searchInput.value = searchChip.dataset.search;
+      renderSearch();
       return;
     }
     const chip = event.target.closest("[data-news]");
@@ -265,5 +337,7 @@
   window.VibeViews = { showTab, current: () => current, feedCard, groupedFeed, emptyFeed, sectionHead, upcoming };
 
   showTab(tabFromHash() || "discover", { scroll: false });
+  // A #map link would otherwise jump to the map element under the tab bar.
+  window.scrollTo(0, 0);
   loadNews();
 })();

@@ -1,16 +1,20 @@
 const LONDON_CENTER = [51.485, -0.085];
+// Every category gets its own colour.
 const TYPE_COLORS = {
   "Day Party": "#d7f25a",
   "Night Party": "#e86d4e",
-  Festival: "#74a7c2",
-  "Sports Event": "#caaa71",
   Concert: "#e58eaa",
-  "LGBTQ+": "#ece9dd",
+  Festival: "#74a7c2",
   Brunch: "#a35ee5",
-  "Networking Events": "#8b1a2b",
-  "Games Nights": "#6b4226",
-  Other: "#ece9dd",
+  "Games Night": "#2ecc71",
+  "Games Nights": "#2ecc71",
+  "LGBTQ+": "#ff9f43",
+  "Sports Event": "#caaa71",
+  "Networking Events": "#4fd1c5",
+  Other: "#b0b3a8",
 };
+// For new categories added to the sheet later: distinct from the above.
+const EXTRA_COLORS = ["#f7d794", "#778beb", "#f8a5c2", "#63cdda", "#cf6a87", "#e15f41", "#c8d6e5", "#ffd32a"];
 
 const state = {
   events: [],
@@ -93,9 +97,15 @@ L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.p
   pane: "shadowPane",
 }).addTo(map);
 
+// No emojis anywhere in the text: strip them, along with their joiners.
+const EMOJI = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D\u20E3]/gu;
+function stripEmoji(value = "") {
+  return String(value ?? "").replace(EMOJI, "").replace(/[ \t]{2,}/g, " ").replace(/^ +| +$/gm, "");
+}
+
 function safeText(value = "") {
   const node = document.createElement("div");
-  node.textContent = value;
+  node.textContent = stripEmoji(value);
   return node.innerHTML;
 }
 
@@ -109,7 +119,29 @@ function safeUrl(value = "") {
 }
 
 function colorFor(type) {
-  return TYPE_COLORS[type] || TYPE_COLORS.Other;
+  if (!type) return TYPE_COLORS.Other;
+  if (TYPE_COLORS[type]) return TYPE_COLORS[type];
+  let hash = 0;
+  for (const character of type) hash = (hash * 31 + character.charCodeAt(0)) % 997;
+  return EXTRA_COLORS[hash % EXTRA_COLORS.length];
+}
+
+// Simple drawn shapes instead of symbols, which iPhones turn into emoji.
+const ICONS = {
+  "arrow-up-right": '<path d="M7 17 17 7M9 7h8v8" />',
+  play: '<path d="M8 5.5v13l10.5-6.5Z" fill="currentColor" stroke="none" />',
+  stack: '<rect x="7" y="7" width="12" height="12" /><path d="M4 16V4h12" />',
+};
+function iconSvg(name) {
+  return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+}
+
+// "Venue, POSTCODE" for flyers and lists.
+function placeLine(event) {
+  const venue = (event.location || "").split(",")[0].trim();
+  const postcode = (event.postcode || "").trim();
+  if (!postcode || venue.toUpperCase().includes(postcode.toUpperCase())) return venue;
+  return `${venue}, ${postcode}`;
 }
 
 function dateObject(value) {
@@ -246,7 +278,7 @@ function popupMarkup(event) {
       <button type="button" class="popup-action ${isSaved(event) ? "is-saved" : ""}" data-action="save" data-event-id="${safeText(event.id)}">${isSaved(event) ? "Saved" : "Save"}</button>
       <button type="button" class="popup-action" data-action="share" data-event-id="${safeText(event.id)}">Share</button>
     </div>
-    <button type="button" class="popup-link" data-action="details" data-event-id="${safeText(event.id)}"><span>${ticketUrl ? "Details &amp; tickets" : "Details"}</span><span>↗</span></button>
+    <button type="button" class="popup-link" data-action="details" data-event-id="${safeText(event.id)}"><span>${ticketUrl ? "Details &amp; tickets" : "Details"}</span>${iconSvg("arrow-up-right")}</button>
   </article>`;
 }
 
@@ -263,13 +295,23 @@ function renderMap(events, keepView = false) {
 
     marker.bindPopup(popupMarkup(event), {
       closeButton: true,
-      maxWidth: 280,
+      maxWidth: 240,
       offset: [0, -2],
       // Keep the popup clear of the buttons floating over the top of the map.
-      autoPanPaddingTopLeft: L.point(16, window.innerWidth <= 760 ? 140 : 70),
-      autoPanPaddingBottomRight: L.point(16, 60),
+      autoPanPaddingTopLeft: L.point(20, 80),
+      autoPanPaddingBottomRight: L.point(20, 30),
     });
-    marker.on("click", () => selectEvent(event.id, false));
+    // On phones a map pop-up gets squeezed under the buttons, so open the
+    // full event pop-up from the bottom instead.
+    marker.on("click", () => {
+      if (window.innerWidth <= 760) {
+        marker.closePopup();
+        state.selectedId = event.id;
+        openEventDetail(event.id);
+        return;
+      }
+      selectEvent(event.id, false);
+    });
     marker.on("popupclose", () => clearSelection());
     state.markers.set(event.id, marker);
   });
@@ -309,7 +351,7 @@ function renderCards(events) {
       </span>
       ${flyerUrl ? `<img class="card-flyer" src="${flyerUrl}" alt="" loading="lazy" />` : ""}
     </button>
-    <button class="card-details" type="button" data-event-id="${safeText(event.id)}">Details &amp; tickets ↗</button>
+    <button class="card-details" type="button" data-event-id="${safeText(event.id)}">Details &amp; tickets ${iconSvg("arrow-up-right")}</button>
     <button class="card-save ${saved ? "is-saved" : ""}" type="button" data-event-id="${safeText(event.id)}" aria-pressed="${saved}" aria-label="${saved ? "Remove from saved" : "Save event"}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z" /></svg>
     </button>
@@ -341,7 +383,7 @@ function placeholderFlyer(event, extraClass = "") {
   return `<span class="flyer-card-image flyer-placeholder ${extraClass}" style="--event-color:${colorFor(event.type[0])}" aria-hidden="true">
     <span class="ph-top">${safeText(event.type[0])}</span>
     <strong>${safeText(event.title)}</strong>
-    <span class="ph-bottom"><b>${safeText(formatFilterDate(event.date))}</b>${safeText(event.location.split(",")[0])}</span>
+    <span class="ph-bottom"><b>${safeText(formatFilterDate(event.date))}</b>${safeText(placeLine(event))}</span>
   </span>`;
 }
 
@@ -358,6 +400,7 @@ function flyerCardMarkup(event) {
     <span class="flyer-card-body">
       <span class="flyer-card-type">${safeText(formatFilterDate(event.date))}</span>
       <h3>${safeText(event.title)}</h3>
+      <span class="flyer-card-place">${safeText(placeLine(event))}</span>
     </span>
   </button>`;
 }
@@ -546,7 +589,7 @@ function detailMarkup(event) {
         <button type="button" class="detail-secondary" data-detail-action="share" data-event-id="${safeText(event.id)}">Share</button>
       </div>
       ${ticketUrl
-        ? `<a class="detail-tickets" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Continue to tickets</span><span>↗</span></a>
+        ? `<a class="detail-tickets" href="${ticketUrl}" target="_blank" rel="noopener noreferrer"><span>Continue to tickets</span>${iconSvg("arrow-up-right")}</a>
            <p class="detail-fine">Tickets are sold by the organiser's ticket site.</p>`
         : '<p class="detail-tickets is-disabled"><span>Tickets not live yet</span></p><p class="detail-fine">Save it and we will remind you closer to the date.</p>'}
     </div>
@@ -683,9 +726,17 @@ function selectEvent(id, openPopup) {
 
   const marker = state.markers.get(id);
   if (marker) {
-    map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 13), { duration: 0.65 });
+    // Centre slightly above the pin so the pop-up above it has room.
+    const zoom = Math.max(map.getZoom(), 13);
+    const target = window.innerWidth > 760
+      ? map.unproject(map.project(marker.getLatLng(), zoom).subtract([0, map.getSize().y * 0.24]), zoom)
+      : marker.getLatLng();
+    map.flyTo(target, zoom, { duration: 0.65 });
     // Open after the fly-to settles so the popup can pan itself fully into view.
-    if (openPopup) setTimeout(() => state.markers.get(id)?.openPopup(), 700);
+    if (openPopup) {
+      if (window.innerWidth <= 760) setTimeout(() => openEventDetail(id), 450);
+      else setTimeout(() => state.markers.get(id)?.openPopup(), 700);
+    }
   }
 
   if (window.innerWidth <= 760) closeMobileRail();
@@ -862,6 +913,10 @@ elements.nearMeButton.addEventListener("click", toggleNearMe);
 elements.savedButton.addEventListener("click", toggleSavedOnly);
 
 map.on("popupopen", (event) => {
+  // Re-check the fit once the flyer has loaded, so the pop-up stays in view.
+  event.popup.getElement()?.querySelectorAll("img").forEach((image) => {
+    if (!image.complete) image.addEventListener("load", () => { event.popup.update(); }, { once: true });
+  });
   event.popup.getElement()?.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.dataset.action === "save") toggleSaved(button.dataset.eventId);
@@ -940,6 +995,9 @@ window.VibeApp = {
   formatFilterDate,
   formatFullDate,
   placeholderFlyer,
+  placeLine,
+  iconSvg,
+  stripEmoji,
   isSaved,
   toggleSaved,
   setupRailDragScroll,

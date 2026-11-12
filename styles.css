@@ -1616,12 +1616,12 @@ body.detail-open, body.drawer-open { overflow: hidden; }
 /* Tabs fixed to the top of the screen */
 .top-tabs {
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   z-index: 1000;
   display: flex;
   gap: 4px;
   margin: 0 calc(var(--page-pad, 0px) * -1);
-  padding: calc(env(safe-area-inset-top) + 10px) 0 10px;
+  padding: 10px 0;
   overflow-x: auto;
   scrollbar-width: none;
   background: rgba(17, 18, 15, .94);
@@ -1644,8 +1644,19 @@ body.detail-open, body.drawer-open { overflow: hidden; }
 }
 .top-tabs a:hover { color: var(--paper); }
 .top-tabs a.is-active { color: var(--ink); background: var(--acid); }
-.is-native .top-tabs { padding-top: calc(env(safe-area-inset-top) + 6px); }
-.is-native .app-shell { padding-top: 0; }
+/* iPhone app: keep the header below the clock and battery, and give the
+   status bar a solid background so tabs never scroll under it. */
+.is-native .app-shell { padding-top: env(safe-area-inset-top); }
+.is-native body::before {
+  content: "";
+  position: fixed;
+  z-index: 1001;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background: var(--ink);
+}
 
 .view { padding-bottom: 20px; }
 .view[hidden] { display: none; }
@@ -1851,8 +1862,8 @@ body.sheet-open { overflow: hidden; }
 @media (max-width: 760px) {
   .header-status { display: none; }
   .site-header { grid-template-columns: 1fr auto; }
-  .top-tabs { justify-content: space-between; gap: 2px; overflow: visible; }
-  .top-tabs a { padding: 9px 7px; font-size: 12.5px; letter-spacing: .03em; }
+  .top-tabs { gap: 2px; padding-right: 24px; -webkit-mask-image: linear-gradient(to right, #000 82%, transparent); mask-image: linear-gradient(to right, #000 82%, transparent); }
+  .top-tabs a { padding: 9px 13px; font-size: 14px; }
   .section-head h2 { font-size: 24px; }
   .news-card { flex-basis: 64vw; max-width: 240px; }
   .flyer-card { flex: 0 0 96px !important; }
@@ -1864,3 +1875,49 @@ body.sheet-open { overflow: hidden; }
   .sheet-overlay.show .sheet { transform: translateY(0); }
   .event-feed .post-grid, .view .post-grid { grid-template-columns: repeat(3, 1fr); }
 }
+
+
+/* ---------- v3.1 fixes ---------- */
+
+/* Tab bar slides sideways; scroll position resets to the active tab. */
+.top-tabs { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.top-tabs a { scroll-snap-align: center; }
+.tab-search { display: inline-flex; align-items: center; gap: 6px; }
+.tab-search svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+
+/* Simple drawn shapes used instead of symbols */
+.ui-icon { display: inline-block; width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.12em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: square; }
+.detail-tickets .ui-icon { width: 20px; height: 20px; }
+.popup-link .ui-icon, .card-details .ui-icon { width: 14px; height: 14px; }
+.drawer-link .ui-icon, .host-ig .ui-icon { color: var(--acid); }
+.news-play .ui-icon, .post-badge .ui-icon, .composer-preview b .ui-icon { width: 13px; height: 13px; }
+.post-badge .ui-icon { stroke-width: 2; }
+
+/* Postcodes on flyers */
+.flyer-card-place { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.2; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Search */
+.search-box { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 66px); z-index: 900; display: flex; align-items: center; gap: 10px; margin: 18px 0 6px; padding: 0 14px; min-height: 54px; border: 1px solid var(--line); border-radius: 28px; background: var(--panel); }
+.search-box:focus-within { border-color: var(--acid); }
+.search-box svg { width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: var(--muted); stroke-width: 2; }
+.search-box input { flex: 1; min-width: 0; height: 52px; border: 0; background: none; color: var(--paper); font-size: 17px; outline: none; -webkit-appearance: none; appearance: none; }
+.search-box input::placeholder { color: var(--muted); }
+.search-hint { margin: 18px 0 12px; color: var(--muted); font-size: 15px; text-transform: none; }
+.search-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.search-chips .chip-button { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; font-size: 14px; }
+.search-chips .chip-button i { width: 9px; height: 9px; border-radius: 50%; background: var(--event-color); }
+
+/* Smaller map pop-up so it never gets covered */
+.leaflet-popup-content { margin: 0 !important; width: 220px !important; }
+.popup-card { padding: 14px 14px 0 !important; }
+.popup-card h2 { font-size: 20px !important; line-height: 1 !important; margin: 0 0 6px !important; }
+.popup-flyer { width: calc(100% + 28px); margin: -14px -14px 10px; }
+.popup-flyer img { height: 120px; max-height: none; width: 100%; object-fit: cover; object-position: center top; }
+#map { scroll-margin-top: 90px; }
+.popup-meta { margin: 0 0 8px !important; font-size: 12px !important; }
+.popup-tags { display: none !important; }
+.popup-facts { margin-bottom: 10px !important; }
+.popup-approved { width: 38px !important; height: 38px !important; }
+.popup-actions { margin-bottom: 10px; }
+.popup-action { min-height: 30px; }
+.popup-link { margin: 0 -14px; width: calc(100% + 28px); }
