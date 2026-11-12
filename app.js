@@ -551,6 +551,7 @@ const hooks = {
   savedChanged() {},
   reminderOptions() { return { dayBefore: true, onDay: true }; },
   detailExtras() { return ""; },
+  canSave() { return true; },
   eventsLoaded() {},
 };
 
@@ -635,6 +636,9 @@ async function toggleSaved(id) {
   const event = findEvent(id);
   if (!event) return;
   const key = eventKey(event);
+  // Saving needs an account. Signed-out people are sent to sign in, and the
+  // event is saved for them once they have.
+  if (!state.saved.has(key) && !hooks.canSave(() => toggleSaved(id))) return;
   native.haptic(state.saved.has(key) ? "LIGHT" : "MEDIUM");
 
   if (state.saved.has(key)) {
@@ -651,6 +655,7 @@ async function toggleSaved(id) {
 
   await persistSaved();
   refreshDetailSaveButton(id);
+  document.dispatchEvent(new CustomEvent("vibe:saved", { detail: { id } }));
   const marker = state.markers.get(id);
   const popupWasOpen = marker?.isPopupOpen();
   render(true);
@@ -707,6 +712,7 @@ function showUserMarker() {
 }
 
 function toggleSavedOnly() {
+  if (!state.savedOnly && !hooks.canSave(() => toggleSavedOnly())) return;
   state.savedOnly = !state.savedOnly;
   native.haptic();
   render();

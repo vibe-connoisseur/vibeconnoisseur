@@ -148,6 +148,19 @@
     }
   }
 
+  // Saving events is for signed-in people only.
+  let pendingAction = null;
+  app.hooks.canSave = (thenDo) => {
+    if (signedIn()) return true;
+    pendingAction = thenDo || null;
+    app.showToast(account.configured ? "Sign in to save events and get reminders." : "Saving events is coming soon.");
+    if (account.configured) {
+      app.closeEventDetail?.();
+      openDrawer("signin");
+    }
+    return false;
+  };
+
   app.hooks.reminderOptions = () => ({ dayBefore: account.prefs.reminderDayBefore, onDay: account.prefs.reminderOnDay });
 
   function hasFavourites() {
@@ -285,6 +298,13 @@
       app.showToast(`Signed in as ${displayName()}`);
       const next = account.afterSignIn;
       account.afterSignIn = null;
+      if (pendingAction) {
+        const action = pendingAction;
+        pendingAction = null;
+        if (isOpen()) closeDrawer();
+        setTimeout(action, 300);
+        return;
+      }
       if (isOpen()) {
         viewStack.length = 0;
         showView("menu", { replace: true });
@@ -293,7 +313,12 @@
     }
   }
 
-  function onSignedOut() {
+  async function onSignedOut() {
+    // Saved events belong to the account, so clear them from this device.
+    for (const key of app.state.saved.keys()) native.cancelReminders(key);
+    app.state.saved = new Map();
+    await app.persistSaved();
+    app.render(true);
     account.profile = null;
     account.isAdmin = false;
     account.pendingCount = 0;

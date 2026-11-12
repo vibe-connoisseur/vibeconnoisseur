@@ -141,6 +141,14 @@
   }
 
   function renderSaved() {
+    if (!window.VibeAccount?.signedIn?.()) {
+      ui.savedFeed.innerHTML = `${sectionHead("Saved")}<div class="feed-empty">
+        <h3>Sign in to save events</h3>
+        <p>Save events to keep them in one place and get a reminder before they start.</p>
+        <button type="button" class="drawer-primary" data-signin><span>Sign in or create account</span><span>&rarr;</span></button>
+      </div>`;
+      return;
+    }
     const events = app.savedEvents();
     ui.savedFeed.innerHTML = `${sectionHead("Saved", events.length)}${events.length
       ? groupedFeed(events)
@@ -331,7 +339,18 @@
     previousLoaded();
     renderCurrent();
   };
-  document.addEventListener("vibe:auth", () => { if (current === "following") renderFollowing(); });
+  // Keep every heart for an event in step, wherever it was saved from.
+  document.addEventListener("vibe:saved", (event) => {
+    if (current === "saved") return renderSaved();
+    const found = app.findEvent(event.detail.id);
+    const saved = Boolean(found && app.isSaved(found));
+    document.querySelectorAll(`.feed-save[data-save-id="${CSS.escape(event.detail.id)}"]`).forEach((button) => {
+      button.classList.toggle("is-saved", saved);
+      button.setAttribute("aria-pressed", String(saved));
+      button.setAttribute("aria-label", saved ? "Remove from saved" : "Save event");
+    });
+  });
+  document.addEventListener("vibe:auth", () => { if (current === "following" || current === "saved") renderCurrent(); });
   document.addEventListener("vibe:following-changed", () => { if (current === "following") renderFollowing(); });
 
   window.VibeViews = { showTab, current: () => current, feedCard, groupedFeed, emptyFeed, sectionHead, upcoming };
