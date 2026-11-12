@@ -6,6 +6,16 @@ workflows:
     name: iPhone app to TestFlight
     max_build_duration: 60
     instance_type: mac_mini_m2
+    # Builds automatically whenever main changes (e.g. a pull request is
+    # merged). A newer push cancels a build that's still running.
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
     integrations:
       # The name you give the App Store Connect API key in Codemagic
       # (Team settings > Integrations > Developer Portal). Must match exactly.
