@@ -27,7 +27,7 @@ type NewsItem = {
   timestamp: string;
 };
 
-const CACHE_MINUTES = 20;
+const CACHE_MINUTES = 10;
 const REFRESH_AFTER_DAYS = 7;
 const TAGS: Array<[Category, RegExp]> = [
   ["concerts", /#concertnews\b/i],
@@ -101,7 +101,9 @@ function cleanCaption(caption: string): { title: string; text: string } {
 }
 
 async function fetchNews(token: string): Promise<NewsItem[]> {
-  const fields = "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp";
+  // Posts with licensed music come back without media_url, so also ask for
+  // the carousel's own photos and use the first one.
+  const fields = "id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children{media_type,media_url,thumbnail_url}";
   const userId = igUserId();
   const url = isInstagramToken(token) || !userId
     ? `https://graph.instagram.com/${GRAPH_VERSION}/me/media?fields=${fields}&limit=40&access_token=${encodeURIComponent(token)}`
@@ -110,7 +112,9 @@ async function fetchNews(token: string): Promise<NewsItem[]> {
   const body = await response.json() as { data?: Array<Record<string, string>>; error?: { message?: string } };
   if (!response.ok || !Array.isArray(body.data)) throw new Error(body.error?.message || `Instagram returned ${response.status}`);
 
-  const posts = body.data.map((post) => {
+  const posts = (body.data as Array<Record<string, any>>).map((post) => {
+    const children: Array<Record<string, string>> = post.children?.data || [];
+    const child = children.map((item) => item.media_type === "VIDEO" ? item.thumbnail_url : item.media_url).find(Boolean) || "";
     const caption = post.caption || "";
     const { title, text } = cleanCaption(caption);
     return {
@@ -118,12 +122,12 @@ async function fetchNews(token: string): Promise<NewsItem[]> {
       category: categorise(caption),
       title,
       caption: text,
-      image: post.media_type === "VIDEO" ? post.thumbnail_url || "" : post.media_url || "",
+      image: (post.media_type === "VIDEO" ? post.thumbnail_url : post.media_url) || post.thumbnail_url || child || "",
       type: post.media_type || "IMAGE",
       permalink: post.permalink || "",
       timestamp: post.timestamp || "",
     };
-  }).filter((post) => post.image && post.permalink);
+  }).filter((post) => post.permalink);
 
   const tagged = posts.filter((post) => post.category).slice(0, 24) as NewsItem[];
   if (tagged.length) return tagged;

@@ -229,7 +229,9 @@
     const items = news.filter((item) => newsFilter === "all" || item.category === newsFilter);
     ui.newsRail.innerHTML = items.map((item) => `
       <a class="news-card" href="${safeText(item.permalink)}" target="_blank" rel="noopener noreferrer">
-        <span class="news-media"><img src="${safeText(item.image)}" alt="" loading="lazy" />${item.type === "VIDEO" ? `<span class="news-play">${app.iconSvg("play")}</span>` : ""}</span>
+        <span class="news-media">${safeUrl(item.image)
+          ? `<img src="${safeText(item.image)}" alt="" loading="lazy" />`
+          : `<span class="news-text-card"><span>${safeText(NEWS_LABELS[item.category] || "Vibe News")}</span><strong>${safeText(item.title || "")}</strong></span>`}${item.type === "VIDEO" ? `<span class="news-play">${app.iconSvg("play")}</span>` : ""}</span>
         <span class="news-label">${safeText(NEWS_LABELS[item.category] || "News")} / ${safeText(timeAgo(item.timestamp))}</span>
         <strong>${safeText(item.title || "View on Instagram")}</strong>
       </a>`).join("");
@@ -237,11 +239,13 @@
     app.setupRailDragScroll(ui.newsRail);
   }
 
+  let lastNewsLoad = 0;
   async function loadNews() {
+    lastNewsLoad = Date.now();
     try {
       const response = await fetch(`${native.apiBase}/api/news`, { headers: { Accept: "application/json" } });
       const body = await response.json();
-      news = Array.isArray(body.items) ? body.items.filter((item) => safeUrl(item.image) && safeUrl(item.permalink)) : [];
+      news = Array.isArray(body.items) ? body.items.filter((item) => safeUrl(item.permalink)) : [];
     } catch {
       news = [];
     }
@@ -279,6 +283,12 @@
     const tab = location.hash.replace(/^#\/?/, "");
     return VIEWS.includes(tab) ? tab : null;
   }
+
+  // Pick up new posts when the refresh button is pressed or the app is reopened.
+  document.querySelector("#refreshButton")?.addEventListener("click", loadNews);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && Date.now() - lastNewsLoad > 5 * 60000) loadNews();
+  });
 
   window.addEventListener("hashchange", () => {
     const tab = tabFromHash();
