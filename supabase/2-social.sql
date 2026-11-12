@@ -13,6 +13,7 @@ alter table public.profiles add column if not exists bio text;
 alter table public.profiles add column if not exists avatar_path text;
 alter table public.profiles add column if not exists creator_status text not null default 'none';
 alter table public.profiles add column if not exists terms_accepted_at timestamptz;
+alter table public.profiles add column if not exists reminder_three_days boolean not null default false;
 
 alter table public.profiles drop constraint if exists profiles_creator_status_check;
 alter table public.profiles add constraint profiles_creator_status_check
@@ -31,7 +32,7 @@ create unique index if not exists profiles_username_key on public.profiles (lowe
 revoke update on public.profiles from anon, authenticated;
 grant update (display_name, account_type, brand_name, instagram, username, bio, avatar_path,
   favourite_types, favourite_areas, open_with_favourites, reminder_day_before, reminder_on_day,
-  terms_accepted_at, updated_at)
+  reminder_three_days, terms_accepted_at, updated_at)
   on public.profiles to authenticated;
 
 -- Switching to Brand or DJ sends the profile for approval; switching back

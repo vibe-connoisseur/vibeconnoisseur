@@ -812,7 +812,7 @@ function populateFilters() {
   const types = [...new Set(state.events.flatMap((event) => event.type))].sort();
   types.push("Vibe Approved");
   const ages = [...new Set(state.events.map((event) => event.ageRange))].sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
-  const regionOrder = ["East London", "South London", "West London", "North West London"];
+  const regionOrder = ["North London", "North West London", "East London", "South London", "West London"];
   const regions = regionOrder.filter((region) => state.events.some((event) => event.region === region));
 
   populateSelect(elements.dateFilter, dates, formatFilterDate);

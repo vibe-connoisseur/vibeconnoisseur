@@ -14,6 +14,7 @@
     openWithFavourites: false,
     reminderDayBefore: true,
     reminderOnDay: true,
+    reminderThreeDays: false,
   };
   const AGE_OPTIONS = ["All Ages", "16+", "18+", "21+", "23+", "25+", "30+"];
   const SUBMIT_TYPES = ["Night Party", "Day Party", "Brunch", "Concert", "Festival", "Games Night", "LGBTQ+", "Other"];
@@ -131,6 +132,7 @@
       openWithFavourites: Boolean(profile.open_with_favourites),
       reminderDayBefore: profile.reminder_day_before !== false,
       reminderOnDay: profile.reminder_on_day !== false,
+      reminderThreeDays: profile.reminder_three_days === true,
     };
   }
 
@@ -138,17 +140,23 @@
     account.prefs = { ...account.prefs, ...changes };
     await native.storage.set(PREFS_KEY, account.prefs);
     if (signedIn()) {
-      await updateProfile({
+      const changes = {
         favourite_types: account.prefs.favouriteTypes,
         favourite_areas: account.prefs.favouriteAreas,
         open_with_favourites: account.prefs.openWithFavourites,
         reminder_day_before: account.prefs.reminderDayBefore,
         reminder_on_day: account.prefs.reminderOnDay,
-      }, { quiet: true });
+        reminder_three_days: account.prefs.reminderThreeDays,
+      };
+      // If the database hasn't had 3-reminders.sql run yet, save the rest.
+      if (!await updateProfile(changes, { quiet: true })) {
+        const { reminder_three_days: _skip, ...rest } = changes;
+        await updateProfile(rest, { quiet: true });
+      }
     }
   }
 
-  app.hooks.reminderOptions = () => ({ dayBefore: account.prefs.reminderDayBefore, onDay: account.prefs.reminderOnDay });
+  app.hooks.reminderOptions = () => ({ threeDays: account.prefs.reminderThreeDays, dayBefore: account.prefs.reminderDayBefore, onDay: account.prefs.reminderOnDay });
 
   function hasFavourites() {
     return account.prefs.favouriteTypes.length > 0 || account.prefs.favouriteAreas.length > 0;
@@ -574,7 +582,7 @@
             <textarea name="bio" rows="3" maxlength="300" placeholder="What you do, your sound, where to find you">${esc(profile.bio || "")}</textarea>
           </label>
         </div>
-        <label class="field"><span>Instagram ${isCreator ? "*" : ""}</span>
+        <label class="field creator-fields" ${isCreator ? "" : "hidden"}><span>Instagram *</span>
           <input name="instagram" maxlength="100" autocapitalize="off" value="${esc(profile.instagram || "")}" placeholder="@yourhandle" />
         </label>
         <p class="drawer-fine creator-fields" ${isCreator ? "" : "hidden"}>Your Instagram links your profile to your events on the map, so your followers see them in Following.</p>
@@ -614,7 +622,7 @@
         brand_name: isCreator ? form.elements.brand_name.value.trim().slice(0, 80) : account.profile?.brand_name || null,
         username: isCreator ? username : account.profile?.username || null,
         bio: isCreator ? form.elements.bio.value.trim().slice(0, 300) || null : account.profile?.bio || null,
-        instagram: instagram || null,
+        instagram: isCreator ? instagram || null : account.profile?.instagram || null,
         terms_accepted_at: isCreator ? account.profile?.terms_accepted_at || new Date().toISOString() : account.profile?.terms_accepted_at || null,
       };
       const avatarFile = form.elements.avatar?.files?.[0];
@@ -676,6 +684,7 @@
         <h3 class="drawer-heading">Reminders for saved events</h3>
         ${toggle("reminderDayBefore", "The day before", "6pm the evening before", prefs.reminderDayBefore)}
         ${toggle("reminderOnDay", "On the day", "Midday on the day of the event", prefs.reminderOnDay)}
+        ${toggle("reminderThreeDays", "3 days before", "6pm, three days before the event", prefs.reminderThreeDays)}
         ${native.isNative ? "" : '<p class="drawer-fine">Reminders arrive as notifications in the iPhone app.</p>'}
         <p class="drawer-fine">${signedIn() ? "Saved to your account." : "Saved on this device. Sign in to keep them everywhere."}</p>
       </form>`;
@@ -689,8 +698,11 @@
       openWithFavourites: form.querySelector('[name="openWithFavourites"]').checked,
       reminderDayBefore: form.querySelector('[name="reminderDayBefore"]').checked,
       reminderOnDay: form.querySelector('[name="reminderOnDay"]').checked,
+      reminderThreeDays: form.querySelector('[name="reminderThreeDays"]').checked,
     };
-    const remindersChanged = changes.reminderDayBefore !== account.prefs.reminderDayBefore || changes.reminderOnDay !== account.prefs.reminderOnDay;
+    const remindersChanged = changes.reminderDayBefore !== account.prefs.reminderDayBefore
+      || changes.reminderOnDay !== account.prefs.reminderOnDay
+      || changes.reminderThreeDays !== account.prefs.reminderThreeDays;
     await savePrefs(changes);
     form.querySelector("#showFavourites").disabled = !hasFavourites();
     if (remindersChanged) {

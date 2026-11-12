@@ -1921,3 +1921,4 @@ body.sheet-open { overflow: hidden; }
 .popup-actions { margin-bottom: 10px; }
 .popup-action { min-height: 30px; }
 .popup-link { margin: 0 -14px; width: calc(100% + 28px); }
+.field[hidden] { display: none !important; }
