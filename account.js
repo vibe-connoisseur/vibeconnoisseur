@@ -46,7 +46,7 @@
   // ---------- helpers ----------
 
   function esc(value = "") {
-    return String(value ?? "")
+    return (app.stripEmoji ? app.stripEmoji(value) : String(value ?? ""))
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
@@ -719,11 +719,11 @@
         <button type="button" class="drawer-secondary" data-view="preferences">Reminder preferences</button>
 
         <h3 class="drawer-heading">About</h3>
-        <a class="drawer-link" href="privacy.html" target="_blank" rel="noopener">Privacy policy <span>&nearr;</span></a>
-        <a class="drawer-link" href="terms.html" target="_blank" rel="noopener">Terms and community rules <span>&nearr;</span></a>
+        <a class="drawer-link" href="privacy.html" target="_blank" rel="noopener">Privacy policy ${app.iconSvg("arrow-up-right")}</a>
+        <a class="drawer-link" href="terms.html" target="_blank" rel="noopener">Terms and community rules ${app.iconSvg("arrow-up-right")}</a>
         ${signedIn() ? '<button type="button" class="drawer-secondary" data-action="blocked">Blocked accounts</button>' : ""}
-        <a class="drawer-link" href="mailto:vibeconnoisseur@outlook.com">Contact us <span>&nearr;</span></a>
-        <a class="drawer-link" href="https://www.instagram.com/thevibeconnoisseurr/" target="_blank" rel="noopener">Instagram <span>&nearr;</span></a>
+        <a class="drawer-link" href="mailto:vibeconnoisseur@outlook.com">Contact us ${app.iconSvg("arrow-up-right")}</a>
+        <a class="drawer-link" href="https://www.instagram.com/thevibeconnoisseurr/" target="_blank" rel="noopener">Instagram ${app.iconSvg("arrow-up-right")}</a>
 
         ${signedIn() ? `
           <h3 class="drawer-heading danger">Delete account</h3>
@@ -935,7 +935,7 @@
             <h4>${esc(row.brand_name || row.display_name || "")}</h4>
             <p>@${esc(row.username || "")} / Instagram ${esc(row.instagram || "none")}</p>
             ${row.bio ? `<p class="review-description">${esc(row.bio)}</p>` : ""}
-            ${row.instagram ? `<a class="drawer-link" href="https://www.instagram.com/${esc(String(row.instagram).replace(/^@/, ""))}/" target="_blank" rel="noopener">Check their Instagram <span>&nearr;</span></a>` : ""}
+            ${row.instagram ? `<a class="drawer-link" href="https://www.instagram.com/${esc(String(row.instagram).replace(/^@/, ""))}/" target="_blank" rel="noopener">Check their Instagram ${app.iconSvg("arrow-up-right")}</a>` : ""}
             ${actions("creator", [["approve", "Approve", true], ["reject", "Reject"]])}
           </div>
         </article>`).join("") : '<p class="drawer-fine">No profiles waiting.</p>'}
@@ -951,7 +951,7 @@
             ${row.description ? `<p class="review-description">${esc(row.description)}</p>` : ""}
             ${row.tags ? `<p class="review-meta">${esc(row.tags)}</p>` : ""}
             <p class="review-meta">${esc(row.instagram || "")} ${esc(row.contact_email || "")}</p>
-            ${row.ticket_url ? `<a class="drawer-link" href="${esc(row.ticket_url)}" target="_blank" rel="noopener">Check ticket link <span>&nearr;</span></a>` : '<p class="review-meta">No ticket link</p>'}
+            ${row.ticket_url ? `<a class="drawer-link" href="${esc(row.ticket_url)}" target="_blank" rel="noopener">Check ticket link ${app.iconSvg("arrow-up-right")}</a>` : '<p class="review-meta">No ticket link</p>'}
             ${actions("submission", [["approve", "Approve", true], ["reject", "Reject"]])}
           </div>
         </article>`).join("") : '<p class="drawer-fine">No events waiting.</p>'}
@@ -1001,7 +1001,7 @@
     if (target.dataset.review) return review(target.closest(".review-card"), target.dataset.review, target.dataset.kind || "submission");
     if (target.dataset.action === "saved") {
       closeDrawer();
-      if (!app.state.savedOnly) document.querySelector("#savedButton").click();
+      location.hash = "#saved";
       return;
     }
     if (target.dataset.action === "following") {
