@@ -4,12 +4,17 @@ Friends are people who follow each other. When someone saves an event, their
 friends get a phone notification and see it under Following > Friends' activity.
 Anyone can switch this off in Settings > Friends.
 
+When someone sends a friend request, the other person gets a phone notification,
+and a red dot shows on the menu button and on Following in the menu until they
+accept or ignore it. They also get a notification when their request is accepted.
+
 ## 1. Supabase
 
 In Supabase > SQL Editor > New query, run these in order (each is safe to run twice):
 
 1. `supabase/3-reminders.sql` (if not already run)
 2. `supabase/4-friends.sql`
+3. `supabase/5-friend-alerts.sql`
 
 ## 2. Apple: turn on push for the app
 

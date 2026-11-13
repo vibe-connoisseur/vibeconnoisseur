@@ -37,7 +37,7 @@ const native = window.VibeNative || {
   storage: { async get() { return null; }, async set() {} }, async scheduleReminders() { return false; }, async cancelReminders() {},
   onReminderTap() {}, async share() { return "cancelled"; }, openUrl(url) { window.open(url, "_blank", "noopener"); }, appReady() {},
   canUseApple: false, async appleSignIn() { throw new Error("Not available"); }, webFetch: window.fetch.bind(window),
-  async registerPush() { return false; }, onPushTap() {},
+  async registerPush() { return false; }, onPushTap() {}, onPushReceived() {},
 };
 const SAVED_KEY = "wtv-saved-events";
 const CACHE_KEY = "wtv-events-cache";
@@ -1025,7 +1025,11 @@ async function start() {
   if (Array.isArray(stored)) state.saved = new Map(stored);
   updateToolButtons();
   native.onReminderTap((key) => openEventFromLink(key));
-  native.onPushTap?.((key) => openEventFromLink(key));
+  native.onPushTap?.((key, data) => {
+    if (key) return openEventFromLink(key);
+    // Friend requests and accepts open Following, where requests sit at the top.
+    if (/^friend-/.test(data?.kind || "")) location.hash = "#following";
+  });
   await loadEvents();
   document.dispatchEvent(new CustomEvent("vibe:events-loaded"));
   const linked = new URLSearchParams(location.search).get("event");

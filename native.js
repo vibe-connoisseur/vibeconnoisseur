@@ -165,13 +165,25 @@
     }
   }
 
+  // handler(eventKey, data): eventKey is set for event alerts, data.kind says
+  // what the notification was about (for example "friend-request").
   function onPushTap(handler) {
     if (!isNative || !plugins.PushNotifications) return;
     try {
       plugins.PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
-        const key = action?.notification?.data?.eventKey;
-        if (key) handler(key);
+        const data = action?.notification?.data || {};
+        if (data.eventKey || data.kind) handler(data.eventKey || "", data);
       });
+    } catch {
+      // Listener not available.
+    }
+  }
+
+  // Runs when a notification arrives while the app is open.
+  function onPushReceived(handler) {
+    if (!isNative || !plugins.PushNotifications) return;
+    try {
+      plugins.PushNotifications.addListener("pushNotificationReceived", (notification) => handler(notification?.data || {}));
     } catch {
       // Listener not available.
     }
@@ -265,6 +277,7 @@
     appleSignIn,
     registerPush,
     onPushTap,
+    onPushReceived,
     canUseApple: isNative && Boolean(plugins.SignInWithApple),
     // The app routes fetch through native code. Supabase allows browser
     // requests, so it can use the web view's own fetch.

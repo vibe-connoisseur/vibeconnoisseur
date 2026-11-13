@@ -7,6 +7,7 @@
   --line: rgba(236, 233, 221, 0.17);
   --acid: #d7f25a;
   --coral: #e86d4e;
+  --alert: #ff3b30;
   --sky: #74a7c2;
   --sand: #caaa71;
   --display: "Norwester", "Arial Narrow", sans-serif;
@@ -1249,7 +1250,7 @@ input, textarea, select, button { font-family: var(--mono); letter-spacing: .02e
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--coral);
+  background: var(--alert);
 }
 
 /* Drawer */
@@ -1353,6 +1354,7 @@ input, textarea, select, button { font-family: var(--mono); letter-spacing: .02e
 .drawer-item small { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; text-transform: none; }
 .drawer-item em { min-width: 26px; padding: 3px 8px; border-radius: 13px; background: var(--acid); color: var(--ink); font-style: normal; font-size: 13px; text-align: center; }
 .drawer-item b { color: var(--muted); font-size: 24px; font-weight: 400; }
+.drawer-item.has-dot strong::after { content: ""; display: inline-block; width: 9px; height: 9px; margin-left: 10px; vertical-align: middle; border-radius: 50%; background: var(--alert); }
 .drawer-item-solo { width: 100%; border-top: 1px solid var(--line); }
 
 .drawer-section { padding: 18px 18px 6px; }
@@ -1930,7 +1932,7 @@ body.sheet-open { overflow: hidden; }
 
 /* ---------- Friends ---------- */
 .top-tabs a.has-dot { position: relative; }
-.top-tabs a.has-dot::after { content: ""; position: absolute; top: 6px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--coral); }
+.top-tabs a.has-dot::after { content: ""; position: absolute; top: 6px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--alert); }
 .friends-block { padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
 .following-intro.is-compact { margin: 6px 0 14px; padding: 16px; }
 .following-intro.is-compact p { margin-bottom: 12px; }
