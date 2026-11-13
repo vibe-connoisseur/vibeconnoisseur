@@ -582,7 +582,9 @@
             break;
           }
           if (file.type.startsWith("video") && file.size > MAX_VIDEO_MB * 1024 * 1024) {
-            errorElement.textContent = `${file.name} is over ${MAX_VIDEO_MB}MB. Trim it or export at a lower quality.`;
+            errorElement.textContent = /^wtv-/.test(file.name)
+              ? `That video is still over ${MAX_VIDEO_MB}MB after shrinking. Trim it and try again.`
+              : `${file.name} is over ${MAX_VIDEO_MB}MB. Trim it or export at a lower quality.`;
             continue;
           }
           files.push(file);
