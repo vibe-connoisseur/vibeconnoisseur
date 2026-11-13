@@ -400,8 +400,15 @@
     ui.button.focus();
   }
 
+  function friendRequestCount() {
+    return signedIn() ? (window.VibeSocial?.friends?.requests?.length || 0) : 0;
+  }
+
   function updateMenuButton() {
-    ui.button.classList.toggle("has-badge", account.isAdmin && account.pendingCount > 0);
+    ui.button.classList.toggle("has-badge", (account.isAdmin && account.pendingCount > 0) || friendRequestCount() > 0);
+    // Keep the dot on Following in sync if the menu is open.
+    const item = ui.content?.querySelector('[data-action="following"]');
+    if (item) item.classList.toggle("has-dot", friendRequestCount() > 0);
   }
 
   const VIEWS = {
@@ -478,7 +485,7 @@
       </nav>
       <nav class="drawer-list drawer-list-minor">
         <button type="button" class="drawer-item" data-action="saved">${icon("saved")}<span><strong>Saved events</strong></span><em>${savedTotal}</em><b aria-hidden="true">&rsaquo;</b></button>
-        <button type="button" class="drawer-item" data-action="following">${icon("profile")}<span><strong>Following</strong></span><b aria-hidden="true">&rsaquo;</b></button>
+        <button type="button" class="drawer-item${friendRequestCount() ? " has-dot" : ""}" data-action="following">${icon("profile")}<span><strong>Following</strong></span><b aria-hidden="true">&rsaquo;</b></button>
         ${isApprovedCreator() ? `<button type="button" class="drawer-item" data-action="my-public-profile">${icon("submit")}<span><strong>My public profile</strong><small>Posts, followers, new post</small></span><b aria-hidden="true">&rsaquo;</b></button>` : ""}
       </nav>`;
   }
@@ -1162,5 +1169,6 @@
   account.friendlyError = friendlyError;
   account.signedIn = signedIn;
   account.api = api;
+  account.updateMenuButton = updateMenuButton;
   window.VibeAccount = account;
 })();

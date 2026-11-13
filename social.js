@@ -726,12 +726,15 @@
     const newest = friends.activity[0] ? new Date(friends.activity[0].created_at).getTime() : 0;
     const unseen = friends.requests.length > 0 || newest > seen;
     document.querySelector('[data-tab="following"]')?.classList.toggle("has-dot", Boolean(me()) && unseen);
+    // Friend requests also show on the menu button and on Following in the menu.
+    account().updateMenuButton?.();
   }
 
   function markActivitySeen() {
     const newest = friends.activity[0] ? new Date(friends.activity[0].created_at).getTime() : 0;
     if (newest) writeLocal(SEEN_KEY, Math.max(newest, readLocal(SEEN_KEY, 0)));
     document.querySelector('[data-tab="following"]')?.classList.toggle("has-dot", friends.requests.length > 0);
+    account().updateMenuButton?.();
   }
 
   function timeAgo(timestamp) {
@@ -821,6 +824,8 @@
     }
     social.follows.add(personId);
     native.haptic("MEDIUM");
+    // Let them know on their phone (the server checks it's a real, new request).
+    account().api?.("/api/push", { method: "POST", body: JSON.stringify({ action: "friend", personId }) }).catch(() => undefined);
     const person = friends.people.get(personId);
     app.showToast(friends.incoming.has(personId) ? `You and ${person?.name || "them"} are now friends` : "Request sent. You'll be friends when they add you back.");
     await loadFriends();
@@ -985,6 +990,11 @@
 
   const linkedProfile = new URLSearchParams(location.search).get("profile");
   if (linkedProfile) document.addEventListener("vibe:accounts-ready", () => openProfile(linkedProfile), { once: true });
+
+  // A friend request or friend's save arrived while the app is open.
+  native.onPushReceived?.((data) => {
+    if (/^friend-/.test(data?.kind || "") && me()) loadFriends().then(() => document.dispatchEvent(new CustomEvent("vibe:following-changed")));
+  });
 
   // Friends' saves change while the app is open: refresh when it comes back.
   document.addEventListener("visibilitychange", () => {
