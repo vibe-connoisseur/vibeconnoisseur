@@ -513,6 +513,36 @@
     });
   }
 
+  // Uploads to Supabase storage with progress. Uses the web view's own
+  // XMLHttpRequest (in the app, the native HTTP layer would copy the whole file
+  // across the bridge and report no progress).
+  async function uploadMedia(path, blob, contentType, onProgress) {
+    const acct = account();
+    const { data } = await client().auth.getSession();
+    const token = data?.session?.access_token;
+    if (!acct.supabaseUrl || !token) return client().storage.from("media").upload(path, blob, { contentType });
+    const web = window.CapacitorWebXMLHttpRequest;
+    const xhr = web ? new web.fullObject() : new XMLHttpRequest();
+    const call = (name, ...args) => (web ? web[name] : XMLHttpRequest.prototype[name]).call(xhr, ...args);
+    return new Promise((resolve) => {
+      xhr.upload.onprogress = (event) => event.lengthComputable && onProgress?.(event.loaded);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) return resolve({ error: null });
+        let message = "Upload failed. Try again.";
+        try { message = JSON.parse(xhr.responseText).message || message; } catch {}
+        resolve({ error: new Error(message) });
+      };
+      xhr.onerror = () => resolve({ error: new Error("Upload failed. Check your connection and try again.") });
+      call("open", "POST", `${acct.supabaseUrl}/storage/v1/object/media/${path.split("/").map(encodeURIComponent).join("/")}`);
+      call("setRequestHeader", "Authorization", `Bearer ${token}`);
+      call("setRequestHeader", "apikey", acct.supabaseAnonKey);
+      call("setRequestHeader", "Content-Type", contentType);
+      call("setRequestHeader", "x-upsert", "false");
+      call("setRequestHeader", "cache-control", "max-age=3600");
+      call("send", blob);
+    });
+  }
+
   function openComposer() {
     if (!account().isApprovedCreator?.()) {
       app.showToast("Posting is for approved Brand and DJ profiles.");
@@ -545,9 +575,7 @@
         </span>`).join("");
       };
 
-      form.elements.media.addEventListener("change", () => {
-        errorElement.textContent = "";
-        const chosen = [...form.elements.media.files];
+      const addFiles = (chosen) => {
         for (const file of chosen) {
           if (files.length >= MAX_FILES) {
             errorElement.textContent = `Up to ${MAX_FILES} per post.`;
@@ -559,8 +587,37 @@
           }
           files.push(file);
         }
-        form.elements.media.value = "";
         drawPreviews();
+      };
+
+      form.elements.media.addEventListener("change", () => {
+        errorElement.textContent = "";
+        addFiles([...form.elements.media.files]);
+        form.elements.media.value = "";
+      });
+
+      // In the app, use the native picker: it skips iOS's slow conversion and
+      // shrinks videos on the phone, so posting is much quicker.
+      const pick = form.querySelector(".composer-pick");
+      pick.addEventListener("click", async (event) => {
+        if (!native.hasMediaPicker?.()) return;
+        event.preventDefault();
+        if (pick.classList.contains("is-busy")) return;
+        errorElement.textContent = "";
+        if (files.length >= MAX_FILES) return void (errorElement.textContent = `Up to ${MAX_FILES} per post.`);
+        const title = pick.querySelector("strong");
+        try {
+          const chosen = await native.pickMedia(MAX_FILES - files.length, ({ done, total }) => {
+            pick.classList.add("is-busy");
+            title.textContent = total > 1 ? `Preparing ${Math.min(done + 1, total)} of ${total}...` : "Preparing...";
+          });
+          if (chosen) addFiles(chosen);
+        } catch (error) {
+          errorElement.textContent = "Couldn't open that. Try again.";
+        } finally {
+          pick.classList.remove("is-busy");
+          title.textContent = "Add photos or videos";
+        }
       });
 
       previews.addEventListener("click", (event) => {
@@ -580,31 +637,40 @@
         const uid = me().id;
         const uploaded = [];
         try {
+          // Get everything ready first (video length and thumbnails, resized
+          // photos), then upload with one overall percentage.
+          label.textContent = "Preparing...";
+          const jobs = [];
           for (const [index, file] of files.entries()) {
-            label.textContent = `Uploading ${index + 1} of ${files.length}...`;
             const stamp = `${Date.now()}-${index}`;
             if (file.type.startsWith("video")) {
               const info = await videoInfo(file);
-              if (info.duration > MAX_VIDEO_SECONDS + 1) throw new Error(`Videos can be up to ${MAX_VIDEO_SECONDS} seconds. Trim it and try again.`);
+              const duration = file.__duration || info.duration;
+              if (duration > MAX_VIDEO_SECONDS + 1) throw new Error(`Videos can be up to ${MAX_VIDEO_SECONDS} seconds. Trim it and try again.`);
               const extension = file.type === "video/quicktime" ? "mov" : "mp4";
-              const path = `${uid}/${stamp}.${extension}`;
-              const poster = `${uid}/${stamp}-poster.jpg`;
-              const video = await client().storage.from("media").upload(path, file, { contentType: file.type });
-              if (video.error) throw video.error;
-              uploaded.push(path);
-              if (info.poster) {
-                const thumb = await client().storage.from("media").upload(poster, info.poster, { contentType: "image/jpeg" });
-                if (!thumb.error) uploaded.push(poster);
-              }
-              files[index].__media = { path, type: "video", poster: uploaded.includes(poster) ? poster : null };
+              jobs.push({ index, type: "video", path: `${uid}/${stamp}.${extension}`, blob: file, contentType: file.type || "video/mp4",
+                poster: info.poster ? { path: `${uid}/${stamp}-poster.jpg`, blob: info.poster } : null });
             } else {
               const blob = await account().resizeImage(file, 1600);
-              const path = `${uid}/${stamp}.jpg`;
-              const image = await client().storage.from("media").upload(path, blob, { contentType: "image/jpeg" });
-              if (image.error) throw image.error;
-              uploaded.push(path);
-              files[index].__media = { path, type: "image" };
+              jobs.push({ index, type: "image", path: `${uid}/${stamp}.jpg`, blob, contentType: "image/jpeg" });
             }
+          }
+          const total = jobs.reduce((sum, job) => sum + job.blob.size + (job.poster?.blob.size || 0), 0) || 1;
+          let sent = 0;
+          const show = (extra = 0) => { label.textContent = `Uploading ${Math.min(99, Math.round(((sent + extra) / total) * 100))}%`; };
+          show();
+          for (const job of jobs) {
+            const result = await uploadMedia(job.path, job.blob, job.contentType, show);
+            if (result.error) throw result.error;
+            uploaded.push(job.path);
+            sent += job.blob.size;
+            let poster = null;
+            if (job.poster) {
+              const thumb = await uploadMedia(job.poster.path, job.poster.blob, "image/jpeg", show);
+              if (!thumb.error) { uploaded.push(job.poster.path); poster = job.poster.path; }
+              sent += job.poster.blob.size;
+            }
+            files[job.index].__media = job.type === "video" ? { path: job.path, type: "video", poster } : { path: job.path, type: "image" };
           }
           label.textContent = "Posting...";
           const { error } = await client().from("posts").insert({

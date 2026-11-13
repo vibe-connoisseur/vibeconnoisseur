@@ -261,6 +261,36 @@
 
   prepareShell();
 
+  // Photos and videos for posts. In the app, a native picker skips iOS's slow
+  // full-quality conversion and shrinks videos to 720p before upload.
+  function mediaPicker() {
+    if (!isNative || !capacitor.isPluginAvailable || !capacitor.isPluginAvailable("MediaPicker")) return null;
+    return plugins.MediaPicker || (capacitor.registerPlugin && capacitor.registerPlugin("MediaPicker")) || null;
+  }
+
+  // Returns File objects, or null on the website (use a normal file input there).
+  async function pickMedia(limit, onProgress) {
+    const picker = mediaPicker();
+    if (!picker) return null;
+    let listener = null;
+    try {
+      if (onProgress) listener = await picker.addListener("progress", onProgress);
+      const { files = [] } = await picker.pick({ limit });
+      const out = [];
+      for (const item of files) {
+        const response = await fetch(capacitor.convertFileSrc(item.path));
+        const blob = await response.blob();
+        const name = item.path.split("/").pop();
+        const file = new File([blob], name, { type: item.mime || blob.type });
+        if (item.duration) file.__duration = item.duration;
+        out.push(file);
+      }
+      return out;
+    } finally {
+      if (listener) listener.remove();
+    }
+  }
+
   window.VibeNative = {
     isNative,
     apiBase: isNative ? SITE_URL : "",
@@ -278,6 +308,8 @@
     registerPush,
     onPushTap,
     onPushReceived,
+    hasMediaPicker: () => Boolean(mediaPicker()),
+    pickMedia,
     canUseApple: isNative && Boolean(plugins.SignInWithApple),
     // The app routes fetch through native code. Supabase allows browser
     // requests, so it can use the web view's own fetch.
