@@ -205,6 +205,8 @@
         global: { fetch: native.webFetch },
       });
       account.configured = true;
+      account.supabaseUrl = config.supabaseUrl;
+      account.supabaseAnonKey = config.supabaseAnonKey;
       const { data } = await account.client.auth.getSession();
       account.session = data?.session || null;
       account.client.auth.onAuthStateChange((event, session) => {

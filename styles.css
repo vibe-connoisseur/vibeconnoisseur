@@ -1839,6 +1839,7 @@ body.sheet-open { overflow: hidden; }
 .composer-pick { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 26px 16px; margin-bottom: 14px; border: 1px dashed var(--line); text-align: center; cursor: pointer; }
 .composer-pick > span { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 50%; background: var(--acid); color: var(--ink); font-size: 28px; }
 .composer-pick strong { font-size: 17px; font-weight: 400; text-transform: uppercase; }
+.composer-pick.is-busy { opacity: 0.7; cursor: progress; }
 .composer-pick small { color: var(--muted); font-size: 13px; text-transform: none; }
 .composer-previews { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
 .composer-previews:empty { display: none; }
