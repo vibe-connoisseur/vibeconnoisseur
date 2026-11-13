@@ -61,9 +61,21 @@
     },
   };
 
-  function notificationIds(key) {
+  function keyHash(key) {
     let hash = 0;
     for (let index = 0; index < key.length; index += 1) hash = (hash * 31 + key.charCodeAt(index)) % 1000000000;
+    return hash;
+  }
+
+  // Three reminder slots per event: 3 days before, the day before, on the day.
+  function notificationIds(key) {
+    const hash = keyHash(key) % 700000000;
+    return [hash * 3 + 1, hash * 3 + 2, hash * 3 + 3];
+  }
+
+  // Ids used by earlier versions of the app, so their reminders can be cancelled too.
+  function legacyIds(key) {
+    const hash = keyHash(key);
     return [hash * 2 + 1, hash * 2 + 2];
   }
 
@@ -78,19 +90,23 @@
   async function scheduleReminders(event, key, options = {}) {
     const wantDayBefore = options.dayBefore !== false;
     const wantOnDay = options.onDay !== false;
+    const wantThreeDays = options.threeDays === true;
     if (!isNative || !plugins.LocalNotifications) return false;
     try {
-      if (!wantDayBefore && !wantOnDay) return false;
+      if (!wantDayBefore && !wantOnDay && !wantThreeDays) return false;
       const permission = await plugins.LocalNotifications.requestPermissions();
       if (permission.display !== "granted") return false;
 
-      const [dayBeforeId, onTheDayId] = notificationIds(key);
+      const [threeDaysId, dayBeforeId, onTheDayId] = notificationIds(key);
+      const threeDays = localTime(event.date, 18);
+      threeDays.setDate(threeDays.getDate() - 3);
       const dayBefore = localTime(event.date, 18);
       dayBefore.setDate(dayBefore.getDate() - 1);
       const onTheDay = localTime(event.date, 12);
       const now = Date.now();
 
       const notifications = [
+        { id: threeDaysId, at: threeDays, wanted: wantThreeDays, title: "In 3 days", body: `${event.title} is in 3 days. Time to sort tickets and plans.` },
         { id: dayBeforeId, at: dayBefore, wanted: wantDayBefore, title: "Tomorrow", body: `${event.title} is tomorrow. Tickets sorted?` },
         { id: onTheDayId, at: onTheDay, wanted: wantOnDay, title: "Today", body: `${event.title} is today at ${event.location.split(",")[0]}.` },
       ]
@@ -107,7 +123,7 @@
   async function cancelReminders(key) {
     if (!isNative || !plugins.LocalNotifications) return;
     try {
-      const ids = notificationIds(key).map((id) => ({ id }));
+      const ids = [...notificationIds(key), ...legacyIds(key)].map((id) => ({ id }));
       await plugins.LocalNotifications.cancel({ notifications: ids });
     } catch {
       // Nothing scheduled.
@@ -119,6 +135,41 @@
     try {
       plugins.LocalNotifications.addListener("localNotificationActionPerformed", (action) => {
         const key = action?.notification?.extra?.eventKey;
+        if (key) handler(key);
+      });
+    } catch {
+      // Listener not available.
+    }
+  }
+
+  // Push notifications (friends' activity). Asks permission once, then hands
+  // the phone's token to onToken. Only in the iPhone app.
+  let pushTokenListener = null;
+  async function registerPush(onToken) {
+    if (!isNative || !plugins.PushNotifications) return false;
+    try {
+      let permission = await plugins.PushNotifications.checkPermissions();
+      if (permission.receive === "prompt" || permission.receive === "prompt-with-rationale") {
+        permission = await plugins.PushNotifications.requestPermissions();
+      }
+      if (permission.receive !== "granted") return false;
+      if (!pushTokenListener) {
+        pushTokenListener = await plugins.PushNotifications.addListener("registration", (token) => {
+          if (token?.value) onToken(token.value);
+        });
+      }
+      await plugins.PushNotifications.register();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function onPushTap(handler) {
+    if (!isNative || !plugins.PushNotifications) return;
+    try {
+      plugins.PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+        const key = action?.notification?.data?.eventKey;
         if (key) handler(key);
       });
     } catch {
@@ -212,6 +263,8 @@
     openUrl,
     appReady,
     appleSignIn,
+    registerPush,
+    onPushTap,
     canUseApple: isNative && Boolean(plugins.SignInWithApple),
     // The app routes fetch through native code. Supabase allows browser
     // requests, so it can use the web view's own fetch.

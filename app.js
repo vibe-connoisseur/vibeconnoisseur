@@ -37,6 +37,7 @@ const native = window.VibeNative || {
   storage: { async get() { return null; }, async set() {} }, async scheduleReminders() { return false; }, async cancelReminders() {},
   onReminderTap() {}, async share() { return "cancelled"; }, openUrl(url) { window.open(url, "_blank", "noopener"); }, appReady() {},
   canUseApple: false, async appleSignIn() { throw new Error("Not available"); }, webFetch: window.fetch.bind(window),
+  async registerPush() { return false; }, onPushTap() {},
 };
 const SAVED_KEY = "wtv-saved-events";
 const CACHE_KEY = "wtv-events-cache";
@@ -551,6 +552,7 @@ const hooks = {
   savedChanged() {},
   reminderOptions() { return { dayBefore: true, onDay: true }; },
   detailExtras() { return ""; },
+  canSave() { return true; },
   eventsLoaded() {},
 };
 
@@ -635,6 +637,9 @@ async function toggleSaved(id) {
   const event = findEvent(id);
   if (!event) return;
   const key = eventKey(event);
+  // Saving needs an account. Signed-out people are sent to sign in, and the
+  // event is saved for them once they have.
+  if (!state.saved.has(key) && !hooks.canSave(() => toggleSaved(id))) return;
   native.haptic(state.saved.has(key) ? "LIGHT" : "MEDIUM");
 
   if (state.saved.has(key)) {
@@ -651,6 +656,7 @@ async function toggleSaved(id) {
 
   await persistSaved();
   refreshDetailSaveButton(id);
+  document.dispatchEvent(new CustomEvent("vibe:saved", { detail: { id } }));
   const marker = state.markers.get(id);
   const popupWasOpen = marker?.isPopupOpen();
   render(true);
@@ -707,6 +713,7 @@ function showUserMarker() {
 }
 
 function toggleSavedOnly() {
+  if (!state.savedOnly && !hooks.canSave(() => toggleSavedOnly())) return;
   state.savedOnly = !state.savedOnly;
   native.haptic();
   render();
@@ -812,7 +819,7 @@ function populateFilters() {
   const types = [...new Set(state.events.flatMap((event) => event.type))].sort();
   types.push("Vibe Approved");
   const ages = [...new Set(state.events.map((event) => event.ageRange))].sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
-  const regionOrder = ["East London", "South London", "West London", "North West London"];
+  const regionOrder = ["North London", "North West London", "East London", "South London", "West London"];
   const regions = regionOrder.filter((region) => state.events.some((event) => event.region === region));
 
   populateSelect(elements.dateFilter, dates, formatFilterDate);
@@ -898,7 +905,11 @@ function openEventFromLink(key) {
       render();
     }
   }
-  setTimeout(() => selectEvent(event.id, true), 300);
+  // Links, reminders and friend notifications open the event pop-up directly.
+  setTimeout(() => {
+    state.selectedId = event.id;
+    openEventDetail(event.id);
+  }, 300);
 }
 
 elements.dateFilter.addEventListener("change", (event) => { state.date = event.target.value; render(); });
@@ -1014,6 +1025,7 @@ async function start() {
   if (Array.isArray(stored)) state.saved = new Map(stored);
   updateToolButtons();
   native.onReminderTap((key) => openEventFromLink(key));
+  native.onPushTap?.((key) => openEventFromLink(key));
   await loadEvents();
   document.dispatchEvent(new CustomEvent("vibe:events-loaded"));
   const linked = new URLSearchParams(location.search).get("event");
