@@ -37,6 +37,7 @@ const native = window.VibeNative || {
   storage: { async get() { return null; }, async set() {} }, async scheduleReminders() { return false; }, async cancelReminders() {},
   onReminderTap() {}, async share() { return "cancelled"; }, openUrl(url) { window.open(url, "_blank", "noopener"); }, appReady() {},
   canUseApple: false, async appleSignIn() { throw new Error("Not available"); }, webFetch: window.fetch.bind(window),
+  async registerPush() { return false; }, onPushTap() {},
 };
 const SAVED_KEY = "wtv-saved-events";
 const CACHE_KEY = "wtv-events-cache";
@@ -904,7 +905,11 @@ function openEventFromLink(key) {
       render();
     }
   }
-  setTimeout(() => selectEvent(event.id, true), 300);
+  // Links, reminders and friend notifications open the event pop-up directly.
+  setTimeout(() => {
+    state.selectedId = event.id;
+    openEventDetail(event.id);
+  }, 300);
 }
 
 elements.dateFilter.addEventListener("change", (event) => { state.date = event.target.value; render(); });
@@ -1020,6 +1025,7 @@ async function start() {
   if (Array.isArray(stored)) state.saved = new Map(stored);
   updateToolButtons();
   native.onReminderTap((key) => openEventFromLink(key));
+  native.onPushTap?.((key) => openEventFromLink(key));
   await loadEvents();
   document.dispatchEvent(new CustomEvent("vibe:events-loaded"));
   const linked = new URLSearchParams(location.search).get("event");

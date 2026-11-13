@@ -142,6 +142,41 @@
     }
   }
 
+  // Push notifications (friends' activity). Asks permission once, then hands
+  // the phone's token to onToken. Only in the iPhone app.
+  let pushTokenListener = null;
+  async function registerPush(onToken) {
+    if (!isNative || !plugins.PushNotifications) return false;
+    try {
+      let permission = await plugins.PushNotifications.checkPermissions();
+      if (permission.receive === "prompt" || permission.receive === "prompt-with-rationale") {
+        permission = await plugins.PushNotifications.requestPermissions();
+      }
+      if (permission.receive !== "granted") return false;
+      if (!pushTokenListener) {
+        pushTokenListener = await plugins.PushNotifications.addListener("registration", (token) => {
+          if (token?.value) onToken(token.value);
+        });
+      }
+      await plugins.PushNotifications.register();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function onPushTap(handler) {
+    if (!isNative || !plugins.PushNotifications) return;
+    try {
+      plugins.PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+        const key = action?.notification?.data?.eventKey;
+        if (key) handler(key);
+      });
+    } catch {
+      // Listener not available.
+    }
+  }
+
   async function share({ title, text, url }) {
     try {
       if (isNative && plugins.Share) {
@@ -228,6 +263,8 @@
     openUrl,
     appReady,
     appleSignIn,
+    registerPush,
+    onPushTap,
     canUseApple: isNative && Boolean(plugins.SignInWithApple),
     // The app routes fetch through native code. Supabase allows browser
     // requests, so it can use the web view's own fetch.

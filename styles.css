@@ -1927,3 +1927,18 @@ body.sheet-open { overflow: hidden; }
 .news-text-card span { color: var(--acid); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .news-text-card strong { color: var(--paper); font: 26px/0.95 var(--display); text-transform: uppercase; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
 .field[hidden] { display: none !important; }
+
+/* ---------- Friends ---------- */
+.top-tabs a.has-dot { position: relative; }
+.top-tabs a.has-dot::after { content: ""; position: absolute; top: 6px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--coral); }
+.friends-block { padding-bottom: 8px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.following-intro.is-compact { margin: 6px 0 14px; padding: 16px; }
+.following-intro.is-compact p { margin-bottom: 12px; }
+.request-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.activity-list { display: flex; flex-direction: column; }
+.activity-item { border-bottom: 1px solid var(--line); padding-top: 10px; }
+.activity-item .feed-card { border-bottom: 0; }
+.activity-line { margin: 0; font-size: 14px; text-transform: uppercase; color: var(--muted); }
+.activity-line span { margin-left: 6px; font-size: 12px; }
+.activity-who { padding: 0; border: 0; background: none; color: var(--acid); font: inherit; text-transform: inherit; cursor: pointer; }
+#friendResults:empty { display: none; }

@@ -81,6 +81,7 @@
       social.follows = new Set((follows.data || []).map((row) => row.creator_id));
       social.blocks = new Set((blocks.data || []).map((row) => row.blocked_id));
     }
+    await loadFriends();
     social.ready = true;
     document.dispatchEvent(new CustomEvent("vibe:following-changed"));
   }
@@ -217,6 +218,7 @@
     const suggestions = all.filter((creator) => !social.follows.has(creator.id) && (!me() || creator.id !== me().id));
 
     container.innerHTML = `
+      ${friendsSection()}
       ${!me() ? `<div class="following-intro">
         <h2>Follow your favourite brands and DJs</h2>
         <p>Their events and posts land here, so you never miss the next one.</p>
@@ -235,6 +237,7 @@
         <div class="creator-list" id="creatorList">${suggestions.map(creatorCard).join("")}</div>`
       : '<p class="drawer-fine">More brands and DJs are joining soon.</p>'}`;
 
+    markActivitySeen();
     if (followed.length) {
       const posts = await postsFor(followed.map((creator) => creator.id), 30);
       posts.forEach((post) => postCache.set(post.id, post));
@@ -418,8 +421,8 @@
 
   async function block(creatorId) {
     if (!requireSignIn("Sign in to block accounts.")) return;
-    const creator = social.creators.get(creatorId);
-    if (!window.confirm(`Block ${creator?.name || "this account"}? You won't see their posts or profile.`)) return;
+    const creator = social.creators.get(creatorId) || friends.people.get(creatorId);
+    if (!window.confirm(`Block ${creator?.name || "this account"}? You won't see their posts, profile or activity.`)) return;
     const { error } = await client().from("blocks").insert({ blocker_id: me().id, blocked_id: creatorId });
     if (error && !/duplicate/i.test(error.message)) {
       app.showToast("Couldn't block them. Try again.");
@@ -432,6 +435,7 @@
     }
     app.showToast("Blocked. You can unblock them in Settings.");
     closeSheet();
+    await loadFriends();
     document.dispatchEvent(new CustomEvent("vibe:following-changed"));
   }
 
@@ -444,7 +448,12 @@
 
   function openBlocked() {
     openSheet("Blocked accounts", async (body) => {
-      const blocked = [...social.blocks].map((id) => social.creators.get(id)).filter(Boolean);
+      const missing = [...social.blocks].filter((id) => !social.creators.has(id) && !friends.people.has(id));
+      if (missing.length) {
+        const { data } = await client().from("people").select("*").in("id", missing);
+        (data || []).forEach((person) => friends.people.set(person.id, person));
+      }
+      const blocked = [...social.blocks].map((id) => social.creators.get(id) || friends.people.get(id)).filter(Boolean);
       body.innerHTML = blocked.length
         ? `<div class="creator-list">${blocked.map((creator) => `<div class="creator-card">
             <span class="creator-open">${avatarMarkup(creator, "avatar-md")}<span><strong>${esc(creator.name)}</strong><small>@${esc(creator.username)}</small></span></span>
@@ -622,9 +631,281 @@
     }, { push: !sheet.overlay.hidden });
   }
 
+  // ---------- friends (mutual follows between normal users) ----------
+
+  const IGNORED_KEY = "wtv-ignored-requests";
+  const SEEN_KEY = "wtv-activity-seen";
+  const friends = {
+    people: new Map(),
+    incoming: new Set(),
+    list: [],
+    requests: [],
+    sent: [],
+    activity: [],
+    ignored: new Set(),
+  };
+
+  function readLocal(key, fallback) {
+    try {
+      return JSON.parse(localStorage.getItem(key)) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function writeLocal(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Browser storage blocked: fine for this session.
+    }
+  }
+
+  function personAvatar(person, size = "avatar-md") {
+    return avatarMarkup({ name: person?.name || person?.username || "?", avatar_path: person?.avatar_path }, size);
+  }
+
+  function relation(personId) {
+    const iFollow = social.follows.has(personId);
+    const theyFollow = friends.incoming.has(personId);
+    if (iFollow && theyFollow) return "friends";
+    if (iFollow) return "requested";
+    if (theyFollow) return "wants";
+    return "none";
+  }
+
+  function friendButton(person) {
+    if (!person || (me() && person.id === me().id)) return "";
+    const state = relation(person.id);
+    if (state === "friends") return `<button type="button" class="follow-button is-following is-small" data-person="${esc(person.id)}">Friends</button>`;
+    if (state === "requested") return `<button type="button" class="follow-button is-following is-small" data-friend-cancel="${esc(person.id)}">Requested</button>`;
+    if (state === "wants") return `<button type="button" class="follow-button is-small" data-friend-add="${esc(person.id)}">Accept</button>`;
+    return `<button type="button" class="follow-button is-small" data-friend-add="${esc(person.id)}">Add friend</button>`;
+  }
+
+  async function loadFriends() {
+    const db = client();
+    friends.people = new Map();
+    friends.incoming = new Set();
+    friends.list = [];
+    friends.requests = [];
+    friends.sent = [];
+    friends.activity = [];
+    friends.ignored = new Set(readLocal(IGNORED_KEY, []));
+    if (!db || !me()) return;
+
+    const { data: incoming } = await db.from("follows").select("follower_id").eq("creator_id", me().id);
+    friends.incoming = new Set((incoming || []).map((row) => row.follower_id));
+    const ids = [...new Set([...friends.incoming, ...social.follows])].filter((id) => !social.blocks.has(id));
+    if (ids.length) {
+      const { data: people } = await db.from("people").select("*").in("id", ids);
+      friends.people = new Map((people || []).map((person) => [person.id, person]));
+    }
+    const isPerson = (id) => friends.people.has(id) && !friends.people.get(id).is_creator;
+    friends.list = [...friends.people.values()].filter((person) => relation(person.id) === "friends");
+    friends.requests = [...friends.incoming].filter((id) => !social.follows.has(id) && !friends.ignored.has(id) && isPerson(id)).map((id) => friends.people.get(id));
+    friends.sent = [...social.follows].filter((id) => !friends.incoming.has(id) && isPerson(id)).map((id) => friends.people.get(id));
+
+    if (friends.list.length) {
+      const { data: saves } = await db.from("saved_events")
+        .select("user_id, event_key, event, created_at")
+        .in("user_id", friends.list.map((person) => person.id))
+        .order("created_at", { ascending: false })
+        .limit(60);
+      const today = app.todayString();
+      const live = new Map(app.state.events.map((event) => [app.eventKey(event), event]));
+      friends.activity = (saves || [])
+        .map((row) => ({ ...row, event: live.get(row.event_key) || row.event, person: friends.people.get(row.user_id) }))
+        .filter((row) => row.event?.date >= today && row.person);
+    }
+    updateActivityDot();
+  }
+
+  function updateActivityDot() {
+    const seen = readLocal(SEEN_KEY, 0);
+    const newest = friends.activity[0] ? new Date(friends.activity[0].created_at).getTime() : 0;
+    const unseen = friends.requests.length > 0 || newest > seen;
+    document.querySelector('[data-tab="following"]')?.classList.toggle("has-dot", Boolean(me()) && unseen);
+  }
+
+  function markActivitySeen() {
+    const newest = friends.activity[0] ? new Date(friends.activity[0].created_at).getTime() : 0;
+    if (newest) writeLocal(SEEN_KEY, Math.max(newest, readLocal(SEEN_KEY, 0)));
+    document.querySelector('[data-tab="following"]')?.classList.toggle("has-dot", friends.requests.length > 0);
+  }
+
+  function timeAgo(timestamp) {
+    const minutes = Math.round((Date.now() - new Date(timestamp).getTime()) / 60000);
+    if (minutes < 60) return `${Math.max(1, minutes)} min ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+    const days = Math.round(hours / 24);
+    return `${days} ${days === 1 ? "day" : "days"} ago`;
+  }
+
+  function personRow(person, extra = "") {
+    return `<div class="creator-card">
+      <button type="button" class="creator-open" data-person="${esc(person.id)}">
+        ${personAvatar(person)}
+        <span><strong>${esc(person.name || person.username)}</strong><small>@${esc(person.username || "")}</small></span>
+      </button>
+      ${extra || friendButton(person)}
+    </div>`;
+  }
+
+  function friendsSection() {
+    const views = window.VibeViews;
+    if (!me()) return "";
+    const noUsername = !account().profile?.username;
+    const eventCard = (row) => {
+      const event = app.findEvent(row.event?.id) || row.event;
+      return event?.id && app.findEvent(event.id) ? views.feedCard(event) : "";
+    };
+    return `
+      <section class="friends-block">
+        ${views.sectionHead("Friends", friends.list.length)}
+        ${noUsername ? `<div class="following-intro is-compact">
+          <p>Add a username so your friends can find you.</p>
+          <button type="button" class="drawer-primary" data-edit-profile><span>Set my username</span><span>&rarr;</span></button>
+        </div>` : ""}
+        ${friends.requests.length ? `<h3 class="feed-day-title">Friend requests <span>${friends.requests.length}</span></h3>
+          <div class="creator-list">${friends.requests.map((person) => personRow(person, `<span class="request-actions">
+            <button type="button" class="follow-button is-small" data-friend-add="${esc(person.id)}">Accept</button>
+            <button type="button" class="follow-button is-following is-small" data-friend-ignore="${esc(person.id)}">Ignore</button>
+          </span>`)).join("")}</div>` : ""}
+        ${friends.list.length ? `<div class="following-row">${friends.list.map((person) => `<button type="button" class="following-chip" data-person="${esc(person.id)}">${personAvatar(person)}<span>${esc(person.name || person.username)}</span></button>`).join("")}</div>` : ""}
+        ${friends.list.length ? `<h3 class="feed-day-title">Friends' activity</h3>
+          ${friends.activity.length ? `<div class="activity-list">${friends.activity.slice(0, 20).map((row) => `
+            <div class="activity-item">
+              <p class="activity-line"><button type="button" class="activity-who" data-person="${esc(row.user_id)}">${esc(row.person.name || row.person.username)}</button> saved an event <span>${esc(timeAgo(row.created_at))}</span></p>
+              ${eventCard(row)}
+            </div>`).join("")}</div>`
+          : '<p class="drawer-fine">When your friends save events, they show here and you get a notification.</p>'}` : ""}
+        ${friends.sent.length ? `<h3 class="feed-day-title">Requests you've sent <span>${friends.sent.length}</span></h3>
+          <div class="creator-list">${friends.sent.map((person) => personRow(person)).join("")}</div>` : ""}
+        <h3 class="feed-day-title">Add friends</h3>
+        <label class="creator-search"><span class="sr-only">Find friends by username</span>
+          <input type="search" id="friendSearch" placeholder="Search by name or username" autocomplete="off" autocapitalize="off" />
+        </label>
+        <div class="creator-list" id="friendResults"></div>
+        <p class="drawer-fine">You become friends when you both add each other. Only friends see what you save.</p>
+      </section>`;
+  }
+
+  let friendSearchTimer = null;
+  async function searchPeople(query) {
+    const target = document.querySelector("#friendResults");
+    if (!target) return;
+    const clean = query.replace(/[^a-z0-9._ ]/gi, "").trim();
+    if (clean.length < 2) {
+      target.innerHTML = "";
+      return;
+    }
+    const { data } = await client().from("people").select("*")
+      .or(`username.ilike.%${clean}%,name.ilike.%${clean}%`)
+      .eq("is_creator", false)
+      .limit(20);
+    const results = (data || []).filter((person) => person.id !== me()?.id && !social.blocks.has(person.id));
+    results.forEach((person) => friends.people.set(person.id, person));
+    target.innerHTML = results.length ? results.map((person) => personRow(person)).join("") : '<p class="drawer-fine">No one found with that name.</p>';
+  }
+
+  async function addFriend(personId, button) {
+    if (!requireSignIn("Sign in to add friends.")) return;
+    if (button) button.disabled = true;
+    const { error } = await client().from("follows").insert({ follower_id: me().id, creator_id: personId });
+    if (button) button.disabled = false;
+    if (error && !/duplicate/i.test(error.message)) {
+      app.showToast("Couldn't add them. Try again.");
+      return;
+    }
+    social.follows.add(personId);
+    native.haptic("MEDIUM");
+    const person = friends.people.get(personId);
+    app.showToast(friends.incoming.has(personId) ? `You and ${person?.name || "them"} are now friends` : "Request sent. You'll be friends when they add you back.");
+    await loadFriends();
+    document.dispatchEvent(new CustomEvent("vibe:following-changed"));
+  }
+
+  async function removeFriend(personId, { confirmFirst = true } = {}) {
+    const person = friends.people.get(personId);
+    if (confirmFirst && !window.confirm(`Remove ${person?.name || "this friend"}? You'll stop seeing each other's saved events.`)) return;
+    await client().from("follows").delete().eq("creator_id", personId).eq("follower_id", me().id);
+    social.follows.delete(personId);
+    await loadFriends();
+    document.dispatchEvent(new CustomEvent("vibe:following-changed"));
+  }
+
+  function ignoreRequest(personId) {
+    friends.ignored.add(personId);
+    writeLocal(IGNORED_KEY, [...friends.ignored]);
+    friends.requests = friends.requests.filter((person) => person.id !== personId);
+    updateActivityDot();
+    document.dispatchEvent(new CustomEvent("vibe:following-changed"));
+  }
+
+  function openPerson(personId) {
+    const creator = social.creators.get(personId);
+    if (creator) return openProfile(personId, { push: !sheet.overlay.hidden });
+    openSheet("Friend", async (body) => {
+      let person = friends.people.get(personId);
+      if (!person) {
+        const { data } = await client().from("people").select("*").eq("id", personId).maybeSingle();
+        person = data;
+      }
+      if (!person) {
+        body.innerHTML = '<p class="drawer-fine sheet-loading">This person is no longer on Where\'s The Vibe.</p>';
+        return;
+      }
+      const state = relation(person.id);
+      const saves = friends.activity.filter((row) => row.user_id === person.id);
+      const views = window.VibeViews;
+      body.innerHTML = `
+        <header class="profile-head">
+          ${personAvatar(person, "avatar-xl")}
+          <div class="profile-name">
+            <p class="profile-type">${state === "friends" ? "Friend" : "Going out"}</p>
+            <h2>${esc(person.name || person.username)}</h2>
+            <p class="profile-handle">@${esc(person.username)}</p>
+          </div>
+        </header>
+        <div class="profile-actions">
+          ${state === "friends" ? `<button type="button" class="drawer-secondary" data-friend-remove="${esc(person.id)}">Remove friend</button>`
+            : state === "requested" ? `<button type="button" class="drawer-secondary" data-friend-cancel="${esc(person.id)}">Cancel request</button>`
+            : `<button type="button" class="drawer-primary" data-friend-add="${esc(person.id)}"><span>${state === "wants" ? "Accept friend request" : "Add friend"}</span><span>+</span></button>`}
+          <button type="button" class="drawer-secondary profile-more" data-person-more="${esc(person.id)}" aria-label="More options">&middot;&middot;&middot;</button>
+        </div>
+        <h3 class="feed-day-title">Saved events</h3>
+        ${state !== "friends" ? '<p class="drawer-fine profile-empty">Become friends to see what they save.</p>'
+          : saves.length ? views.groupedFeed(saves.map((row) => row.event).filter((event) => event?.id && app.findEvent(event.id)))
+          : '<p class="drawer-fine profile-empty">Nothing saved right now, or they keep their saves private.</p>'}`;
+      sheet.title.textContent = `@${person.username}`;
+    }, { push: !sheet.overlay.hidden });
+  }
+
+  function personMore(personId) {
+    const person = friends.people.get(personId);
+    openSheet(person?.name || "Options", (body) => {
+      body.innerHTML = `<div class="post-actions is-stacked">
+        <button type="button" class="drawer-secondary" data-report-profile="${esc(personId)}">Report</button>
+        <button type="button" class="drawer-danger" data-block="${esc(personId)}">Block ${esc(person?.name || "")}</button>
+      </div>`;
+    }, { push: true });
+  }
+
   // ---------- events ----------
 
   document.addEventListener("click", (event) => {
+    const friendTarget = event.target.closest("[data-friend-add], [data-friend-cancel], [data-friend-remove], [data-friend-ignore], [data-person], [data-person-more]");
+    if (friendTarget) {
+      const data = friendTarget.dataset;
+      if (data.friendAdd) return addFriend(data.friendAdd, friendTarget).then(() => { if (!sheet.overlay.hidden) drawSheet(); });
+      if (data.friendCancel) return removeFriend(data.friendCancel, { confirmFirst: false }).then(() => { if (!sheet.overlay.hidden) drawSheet(); });
+      if (data.friendRemove) return removeFriend(data.friendRemove).then(() => { if (!sheet.overlay.hidden) drawSheet(); });
+      if (data.friendIgnore) return ignoreRequest(data.friendIgnore);
+      if (data.personMore) return personMore(data.personMore);
+      if (data.person) return openPerson(data.person);
+    }
     const target = event.target.closest("[data-follow], [data-profile], [data-post], [data-compose], [data-edit-profile], [data-more], [data-report-post], [data-report-profile], [data-block], [data-unblock], [data-delete-post], [data-profile-tab], [data-signin], [data-share-profile]");
     if (!target) return;
     const data = target.dataset;
@@ -663,6 +944,11 @@
   });
 
   document.addEventListener("input", (event) => {
+    if (event.target.id === "friendSearch") {
+      clearTimeout(friendSearchTimer);
+      friendSearchTimer = setTimeout(() => searchPeople(event.target.value), 250);
+      return;
+    }
     if (event.target.id !== "creatorSearch") return;
     const query = event.target.value.trim().toLowerCase();
     document.querySelectorAll("#creatorList .creator-card").forEach((card) => {
@@ -700,5 +986,10 @@
   const linkedProfile = new URLSearchParams(location.search).get("profile");
   if (linkedProfile) document.addEventListener("vibe:accounts-ready", () => openProfile(linkedProfile), { once: true });
 
-  window.VibeSocial = { openProfile, openBlocked, openComposer, renderFollowing, load, state: social };
+  // Friends' saves change while the app is open: refresh when it comes back.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && me()) loadFriends().then(() => document.dispatchEvent(new CustomEvent("vibe:following-changed")));
+  });
+
+  window.VibeSocial = { openProfile, openPerson, openBlocked, openComposer, renderFollowing, load, state: social, friends };
 })();

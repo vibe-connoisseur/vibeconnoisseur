@@ -271,8 +271,29 @@
     const request = event
       ? table.upsert({ user_id: account.session.user.id, event_key: key, event })
       : table.delete().eq("event_key", key);
-    request.then(({ error }) => { if (error) console.warn("Saved event sync failed", error.message); });
+    request.then(({ error }) => {
+      if (error) return console.warn("Saved event sync failed", error.message);
+      // Let friends know (the server checks sharing is on and you're friends).
+      if (event && account.profile?.share_activity !== false) {
+        api("/api/push", { method: "POST", body: JSON.stringify({ action: "saved", eventKey: key }) }).catch(() => undefined);
+      }
+    });
   };
+
+  // ---------- push notifications ----------
+
+  let pushToken = null;
+  async function setUpPush() {
+    if (!native.isNative || !signedIn()) return;
+    await native.registerPush(async (token) => {
+      pushToken = token;
+      try {
+        await api("/api/push", { method: "POST", body: JSON.stringify({ action: "register", token }) });
+      } catch {
+        // Try again next launch.
+      }
+    });
+  }
 
   async function checkAdmin() {
     try {
@@ -300,6 +321,7 @@
       console.warn("Profile load failed", error?.message);
     }
     await Promise.all([syncSavedEvents(), checkAdmin()]);
+    setUpPush();
     updateMenuButton();
     document.dispatchEvent(new CustomEvent("vibe:auth"));
     if (!silent) {
@@ -318,6 +340,15 @@
         showView("menu", { replace: true });
         if (next) showView(next);
       }
+    }
+  }
+
+  async function forgetPushToken() {
+    if (!pushToken) return;
+    try {
+      await api("/api/push", { method: "POST", body: JSON.stringify({ action: "unregister", token: pushToken }) });
+    } catch {
+      // The server also drops tokens Apple reports as dead.
     }
   }
 
@@ -589,6 +620,10 @@
           <label><input type="radio" name="account_type" value="dj" ${type === "dj" ? "checked" : ""} /><span>DJ</span></label>
         </fieldset>
         <p class="drawer-fine creator-note" ${isCreator ? "hidden" : ""}>Run events or DJ? Pick Brand or DJ to get a public profile people can follow, with posts and your events.</p>
+        <label class="field"><span>Username ${isCreator ? "*" : ""}</span>
+          <input name="username" maxlength="30" autocapitalize="off" autocomplete="off" value="${esc(profile.username || "")}" placeholder="letters, numbers, . and _" />
+        </label>
+        <p class="drawer-fine">Friends find you by your username.</p>
         <label class="field"><span>Your name</span>
           <input name="display_name" maxlength="60" autocomplete="name" value="${esc(profile.display_name || "")}" placeholder="What should we call you?" />
         </label>
@@ -599,9 +634,6 @@
           </div>
           <label class="field"><span>Profile name *</span>
             <input name="brand_name" maxlength="80" value="${esc(profile.brand_name || "")}" placeholder="e.g. The Couples Den or DJ Name" />
-          </label>
-          <label class="field"><span>Username *</span>
-            <input name="username" maxlength="30" autocapitalize="off" autocomplete="off" value="${esc(profile.username || "")}" placeholder="letters, numbers, . and _" />
           </label>
           <label class="field"><span>Bio</span>
             <textarea name="bio" rows="3" maxlength="300" placeholder="What you do, your sound, where to find you">${esc(profile.bio || "")}</textarea>
@@ -633,9 +665,10 @@
     const username = form.elements.username.value.trim().toLowerCase().replace(/^@/, "");
     const instagram = cleanHandle(form.elements.instagram.value);
     errorElement.textContent = "";
+    if (username && !/^[a-z0-9._]{3,30}$/.test(username)) return void (errorElement.textContent = "Usernames are 3 to 30 letters, numbers, dots or underscores.");
     if (isCreator) {
       if (!form.elements.brand_name.value.trim()) return void (errorElement.textContent = "Add your profile name.");
-      if (!/^[a-z0-9._]{3,30}$/.test(username)) return void (errorElement.textContent = "Usernames are 3 to 30 letters, numbers, dots or underscores.");
+      if (!username) return void (errorElement.textContent = "Add a username.");
       if (!instagram) return void (errorElement.textContent = "Add your Instagram so we can verify you and link your events.");
       if (!form.elements.terms.checked) return void (errorElement.textContent = "Agree to the terms to get a public profile.");
     }
@@ -645,7 +678,7 @@
         display_name: form.elements.display_name.value.trim().slice(0, 60) || null,
         account_type: type,
         brand_name: isCreator ? form.elements.brand_name.value.trim().slice(0, 80) : account.profile?.brand_name || null,
-        username: isCreator ? username : account.profile?.username || null,
+        username: username || null,
         bio: isCreator ? form.elements.bio.value.trim().slice(0, 300) || null : account.profile?.bio || null,
         instagram: isCreator ? instagram || null : account.profile?.instagram || null,
         terms_accepted_at: isCreator ? account.profile?.terms_accepted_at || new Date().toISOString() : account.profile?.terms_accepted_at || null,
@@ -748,6 +781,9 @@
           ? `<p class="drawer-kv"><span>Signed in as</span><strong>${esc(userEmail() || "Apple ID")}</strong></p>
              <button type="button" class="drawer-secondary" id="signOut">Sign out</button>`
           : `<button type="button" class="drawer-secondary" data-view="signin">Sign in or create account</button>`}
+
+        ${signedIn() ? `<h3 class="drawer-heading">Friends</h3>
+          <form id="shareForm">${toggle("share_activity", "Share my saved events with friends", "Friends see what you save and get a notification. Only mutual friends, never strangers.", account.profile?.share_activity !== false)}</form>` : ""}
 
         <h3 class="drawer-heading">Notifications</h3>
         <p class="drawer-fine">${native.isNative
@@ -1060,7 +1096,7 @@
       return renderSignIn();
     }
     if (target.id === "appleSignIn") return signInWithApple(target);
-    if (target.id === "signOut") return account.client.auth.signOut();
+    if (target.id === "signOut") return forgetPushToken().finally(() => account.client.auth.signOut());
     if (target.id === "deleteAccount") return deleteAccount(target);
     if (target.id === "showFavourites") {
       app.applyFavourites(account.prefs.favouriteTypes, account.prefs.favouriteAreas);
@@ -1083,6 +1119,13 @@
   ui.content.addEventListener("change", (event) => {
     const form = event.target.closest("form");
     if (form?.id === "prefsForm") return onPrefsChange(form);
+    if (form?.id === "shareForm") {
+      const share = form.querySelector('[name="share_activity"]').checked;
+      updateProfile({ share_activity: share }).then((ok) => {
+        if (ok) app.showToast(share ? "Friends can see what you save" : "Your saved events are now private");
+      });
+      return;
+    }
     if (event.target.name === "account_type") {
       const creator = event.target.value !== "fan";
       form.querySelectorAll(".creator-fields").forEach((element) => { element.hidden = !creator; });
@@ -1118,5 +1161,6 @@
   account.mediaUrl = mediaUrl;
   account.friendlyError = friendlyError;
   account.signedIn = signedIn;
+  account.api = api;
   window.VibeAccount = account;
 })();
