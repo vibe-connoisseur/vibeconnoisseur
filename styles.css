@@ -1926,3 +1926,4 @@ body.sheet-open { overflow: hidden; }
 .news-text-card { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; padding: 18px; background: linear-gradient(160deg, #2a2d22, #11120f); border: 2px solid var(--acid); border-radius: 8px; }
 .news-text-card span { color: var(--acid); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
 .news-text-card strong { color: var(--paper); font: 26px/0.95 var(--display); text-transform: uppercase; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; }
+.field[hidden] { display: none !important; }

@@ -114,7 +114,8 @@ function regionFromPostcode(postcode: string): string {
   if (["E", "EC", "IG", "RM"].includes(area)) return "East London";
   if (["SE", "SW", "CR", "BR", "SM"].includes(area)) return "South London";
   if (["W", "WC", "TW", "UB", "KT"].includes(area)) return "West London";
-  if (["N", "NW", "EN", "WD", "HA"].includes(area)) return "North West London";
+  if (["N", "EN"].includes(area)) return "North London";
+  if (["NW", "WD", "HA"].includes(area)) return "North West London";
   return "";
 }
 
