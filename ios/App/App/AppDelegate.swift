@@ -59,6 +59,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 //
 // Picks photos and videos for posts without iOS's slow full-quality conversion,
 // then shrinks videos to 720p on the phone so uploads are much smaller and faster.
+// Videos up to 90 seconds always come out under the 50MB upload limit.
 // JS: Capacitor.Plugins.MediaPicker.pick({ limit }) -> { files: [{ path, type, duration }] }
 
 
@@ -158,19 +159,157 @@ public class MediaPickerPlugin: CAPPlugin, CAPBridgedPlugin, PHPickerViewControl
         }
     }
 
-    // Re-encodes to 720p H.264 MP4, which plays everywhere and is a fraction of the size.
+    // Re-encodes to 720p H.264 MP4 at a bitrate chosen from the video's length,
+    // so anything up to 90 seconds comes out under about 45MB. HDR iPhone video
+    // is converted to standard colour so it looks right everywhere.
     private func shrinkVideo(_ source: URL, completion: @escaping (URL?, Double) -> Void) {
         let asset = AVURLAsset(url: source)
         let duration = CMTimeGetSeconds(asset.duration)
-        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1280x720) else {
-            return completion(nil, duration)
+        encode(asset, duration: duration) { output in
+            if let output = output { return completion(output, duration) }
+            // Fall back to Apple's smaller preset if our encode fails.
+            self.presetExport(asset, preset: AVAssetExportPreset960x540) { completion($0, duration) }
         }
+    }
+
+    private func presetExport(_ asset: AVAsset, preset: String, completion: @escaping (URL?) -> Void) {
+        guard let export = AVAssetExportSession(asset: asset, presetName: preset) else { return completion(nil) }
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("wtv-\(UUID().uuidString).mp4")
         export.outputURL = output
         export.outputFileType = .mp4
         export.shouldOptimizeForNetworkUse = true
         export.exportAsynchronously {
-            completion(export.status == .completed ? output : nil, duration)
+            completion(export.status == .completed ? output : nil)
+        }
+    }
+
+    private func encode(_ asset: AVAsset, duration: Double, completion: @escaping (URL?) -> Void) {
+        guard let track = asset.tracks(withMediaType: .video).first else { return completion(nil) }
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent("wtv-\(UUID().uuidString).mp4")
+
+        let reader: AVAssetReader
+        let writer: AVAssetWriter
+        do {
+            reader = try AVAssetReader(asset: asset)
+            writer = try AVAssetWriter(outputURL: output, fileType: .mp4)
+        } catch {
+            return completion(nil)
+        }
+        writer.shouldOptimizeForNetworkUse = true
+
+        // Upright size, scaled so the longest side is at most 1280 (even numbers).
+        let upright = track.naturalSize.applying(track.preferredTransform)
+        let fullWidth = abs(upright.width), fullHeight = abs(upright.height)
+        guard fullWidth > 0, fullHeight > 0 else { return completion(nil) }
+        let scale = min(1, 1280 / max(fullWidth, fullHeight))
+        let width = max(2, Int((fullWidth * scale / 2).rounded()) * 2)
+        let height = max(2, Int((fullHeight * scale / 2).rounded()) * 2)
+
+        let composition = AVMutableVideoComposition()
+        composition.renderSize = CGSize(width: width, height: height)
+        let fps = track.nominalFrameRate > 0 ? min(track.nominalFrameRate, 30) : 30
+        composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps.rounded()))
+        composition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2
+        composition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2
+        composition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: .zero, duration: asset.duration)
+        let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+        layer.setTransform(track.preferredTransform.concatenating(CGAffineTransform(scaleX: scale, y: scale)), at: .zero)
+        instruction.layerInstructions = [layer]
+        composition.instructions = [instruction]
+
+        let videoOutput = AVAssetReaderVideoCompositionOutput(videoTracks: [track], videoSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        ])
+        videoOutput.videoComposition = composition
+        videoOutput.alwaysCopiesSampleData = false
+        guard reader.canAdd(videoOutput) else { return completion(nil) }
+        reader.add(videoOutput)
+
+        // About 45MB in total: up to 3.5Mbps, never below 0.8Mbps.
+        let seconds = max(duration, 1)
+        let budget = 45_000_000.0 * 8 / seconds - 128_000
+        let bitrate = Int(max(800_000, min(3_500_000, budget)))
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
+            ],
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitrate,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
+                AVVideoMaxKeyFrameIntervalKey: 60,
+            ],
+        ])
+        videoInput.expectsMediaDataInRealTime = false
+        guard writer.canAdd(videoInput) else { return completion(nil) }
+        writer.add(videoInput)
+
+        var pairs: [(AVAssetWriterInput, AVAssetReaderOutput)] = [(videoInput, videoOutput)]
+        if let audioTrack = asset.tracks(withMediaType: .audio).first {
+            let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 2,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ])
+            let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 2,
+                AVEncoderBitRateKey: 128_000,
+            ])
+            audioInput.expectsMediaDataInRealTime = false
+            if reader.canAdd(audioOutput) && writer.canAdd(audioInput) {
+                reader.add(audioOutput)
+                writer.add(audioInput)
+                pairs.append((audioInput, audioOutput))
+            }
+        }
+
+        guard reader.startReading(), writer.startWriting() else {
+            reader.cancelReading()
+            writer.cancelWriting()
+            return completion(nil)
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        let group = DispatchGroup()
+        for (index, pair) in pairs.enumerated() {
+            let (input, readerOutput) = pair
+            let queue = DispatchQueue(label: "wtv.encode.\(index)")
+            var done = false
+            group.enter()
+            input.requestMediaDataWhenReady(on: queue) {
+                while input.isReadyForMoreMediaData && !done {
+                    if let buffer = readerOutput.copyNextSampleBuffer(), input.append(buffer) {
+                        continue
+                    }
+                    done = true
+                    input.markAsFinished()
+                    group.leave()
+                }
+            }
+        }
+
+        group.notify(queue: .global()) {
+            if reader.status == .failed || writer.status == .failed {
+                reader.cancelReading()
+                writer.cancelWriting()
+                try? FileManager.default.removeItem(at: output)
+                return completion(nil)
+            }
+            writer.finishWriting {
+                completion(writer.status == .completed ? output : nil)
+            }
         }
     }
 
