@@ -26,7 +26,10 @@ export async function userFromRequest(request: Request): Promise<SupabaseUser | 
     const response = await fetch(`${url}/auth/v1/user`, {
       headers: { apikey: anonKey, Authorization: `Bearer ${token}` },
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.error("Sign-in check failed", response.status, (await response.text()).slice(0, 200));
+      return null;
+    }
     const user = await response.json() as SupabaseUser;
     return user?.id ? user : null;
   } catch {
