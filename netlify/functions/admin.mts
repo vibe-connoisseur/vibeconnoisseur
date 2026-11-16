@@ -26,7 +26,13 @@ async function patch(path: string, body: Record<string, unknown>) {
 export default async (request: Request) => {
   if (!supabaseEnv().ready) return Response.json({ error: "Accounts are not set up yet." }, { status: 503 });
   const user = await userFromRequest(request);
-  if (!isAdmin(user)) return Response.json({ error: "Not allowed" }, { status: 403 });
+  // 401 = the login itself wasn't accepted (the app renews it and retries);
+  // 403 = a real login that isn't on the admin list.
+  if (!user) return Response.json({ error: "Please sign in again" }, { status: 401 });
+  if (!isAdmin(user)) {
+    if (user) console.error("Admin refused: this account's email is not in ADMIN_EMAILS", user.id, (user.email || "").replace(/^(.).*@/, "$1***@"));
+    return Response.json({ error: "Not allowed" }, { status: 403 });
+  }
 
   if (request.method === "GET") {
     const [submissions, creators, reports] = await Promise.all([

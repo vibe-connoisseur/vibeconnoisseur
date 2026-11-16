@@ -95,10 +95,17 @@
   }
 
   async function api(path, options = {}) {
-    const response = await fetch(`${native.apiBase}${path}`, {
+    const send = async () => fetch(`${native.apiBase}${path}`, {
       ...options,
       headers: { "Content-Type": "application/json", ...(await authHeaders()), ...(options.headers || {}) },
     });
+    let response = await send();
+    // The server didn't accept the login (for example it went stale while the
+    // app was in the background): renew it once and try again.
+    if (response.status === 401 && signedIn()) {
+      const { data } = await account.client.auth.refreshSession();
+      if (data?.session) response = await send();
+    }
     let body = {};
     try {
       body = await response.json();
@@ -297,7 +304,9 @@
     });
   }
 
+  let adminCheckedAt = 0;
   async function checkAdmin() {
+    adminCheckedAt = Date.now();
     try {
       const result = await api("/api/admin");
       account.isAdmin = Boolean(result.admin);
@@ -306,7 +315,15 @@
       account.isAdmin = false;
       account.pendingCount = 0;
     }
+    updateMenuButton();
   }
+
+  // Check again when the app comes back to the front (at most every 2 minutes),
+  // so Approvals and the pending count stay up to date.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !signedIn() || Date.now() - adminCheckedAt < 120000) return;
+    checkAdmin().then(() => { if (isOpen() && ui.content?.querySelector('[data-action="following"]')) showView("menu", { replace: true }); });
+  });
 
   async function onSignedIn({ silent = false } = {}) {
     try {
