@@ -11,6 +11,7 @@ const TYPE_COLORS = {
   "LGBTQ+": "#ff9f43",
   "Sports Event": "#caaa71",
   "Networking Events": "#4fd1c5",
+  Social: "#f7c948",
   Other: "#b0b3a8",
 };
 // For new categories added to the sheet later: distinct from the above.
@@ -23,6 +24,7 @@ const state = {
   types: new Set(),
   age: "all",
   regions: new Set(),
+  cities: new Set(),
   search: "",
   selectedId: null,
   saved: new Map(),
@@ -58,6 +60,8 @@ const elements = {
   eventRail: document.querySelector("#eventRail"),
   locationToggle: document.querySelector("#locationFilterToggle"),
   locationPanel: document.querySelector("#locationFilterPanel"),
+  cityPanel: document.querySelector("#cityFilterPanel"),
+  cityToggle: document.querySelector("#cityFilterToggle"),
   mapKey: document.querySelector("#mapKey"),
   nearMeButton: document.querySelector("#nearMeButton"),
   savedButton: document.querySelector("#savedButton"),
@@ -138,6 +142,22 @@ function iconSvg(name) {
 }
 
 // "Venue, POSTCODE" for flyers and lists.
+// "Free", "Free before 11pm, then £10" or "From £15". Free events never say "From".
+function priceLabel(event) {
+  const price = String(event.price || "").trim();
+  if (event.priceType === "free") return "Free";
+  if (event.priceType === "free_before") return `Free before ${event.freeBefore || "a set time"}${price ? `, then ${price}` : ""}`;
+  if (!price) return "Price TBC";
+  if (!/^[£$€\d]/.test(price)) return price;
+  return `From ${price}`;
+}
+
+// The area shown on cards: the London area, or the city elsewhere.
+function areaLabel(event) {
+  if (event.city && event.city !== "London") return event.city;
+  return event.region || event.city || "";
+}
+
 function placeLine(event) {
   const venue = (event.location || "").split(",")[0].trim();
   const postcode = (event.postcode || "").trim();
@@ -224,6 +244,7 @@ function matchesSearch(event, query) {
     event.title,
     event.location,
     event.region,
+    event.city,
     event.ageRange,
     ...(event.type || []),
     ...(event.tags || []),
@@ -249,7 +270,8 @@ function baseFilteredEvents() {
       || event.type.some((type) => state.types.has(type))
       || (state.types.has("Vibe Approved") && event.vibeApproved);
     const matchesRegion = state.regions.size === 0 || state.regions.has(event.region);
-    return matchesDate && matchesAge && matchesType && matchesRegion && matchesSearch(event, query);
+    const matchesCity = state.cities.size === 0 || state.cities.has(event.city || "London");
+    return matchesDate && matchesAge && matchesType && matchesRegion && matchesCity && matchesSearch(event, query);
   });
 }
 
@@ -273,7 +295,7 @@ function popupMarkup(event) {
     <p class="popup-label">${safeText(typeLabel)} / ${safeText(formatFullDate(event.date))}</p>
     <h2>${safeText(event.title)}</h2>
     <p class="popup-meta">${safeText(event.location)}</p>
-    <div class="popup-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
+    <div class="popup-facts"><span>${safeText(areaLabel(event))}</span><span>${safeText(event.ageRange)}</span><span>${safeText(priceLabel(event))}</span></div>
     ${event.tags?.length ? `<div class="popup-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</div>` : ""}
     <div class="popup-actions">
       <button type="button" class="popup-action ${isSaved(event) ? "is-saved" : ""}" data-action="save" data-event-id="${safeText(event.id)}">${isSaved(event) ? "Saved" : "Save"}</button>
@@ -348,7 +370,7 @@ function renderCards(events) {
         <h2>${safeText(event.title)}</h2>
         <span class="card-location">${safeText(event.location)}</span>
         ${event.tags?.length ? `<span class="card-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</span>` : ""}
-        <span class="card-bottom"><span>${distance ? `${safeText(distance)} · ` : ""}${safeText(event.region)} · ${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></span>
+        <span class="card-bottom"><span>${distance ? `${safeText(distance)} · ` : ""}${safeText(areaLabel(event))} · ${safeText(event.ageRange)}</span><span>${safeText(priceLabel(event))}</span></span>
       </span>
       ${flyerUrl ? `<img class="card-flyer" src="${flyerUrl}" alt="" loading="lazy" />` : ""}
     </button>
@@ -557,6 +579,62 @@ const hooks = {
 };
 
 let toastTimer = null;
+// Loading states: a thin bar under the header while anything loads, a spinner
+// on the button that was pressed, and a spinner block for things that take a
+// moment to appear.
+const loading = { count: 0, timer: null, bar: document.querySelector("#loadingBar") };
+function startLoading() {
+  loading.count += 1;
+  if (loading.count === 1 && loading.bar) {
+    clearTimeout(loading.timer);
+    loading.timer = setTimeout(() => { if (loading.count > 0) loading.bar.hidden = false; }, 120);
+  }
+}
+function stopLoading() {
+  loading.count = Math.max(0, loading.count - 1);
+  if (loading.count === 0 && loading.bar) {
+    clearTimeout(loading.timer);
+    loading.bar.hidden = true;
+  }
+}
+// Runs something heavy after the loading state has had a chance to show.
+function afterPaint(work, button = null) {
+  startLoading();
+  setBusy(button, true);
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(async () => {
+    try {
+      resolve(await work());
+    } finally {
+      setBusy(button, false);
+      stopLoading();
+    }
+  }, 0)));
+}
+// Every request the app makes shows the bar while it runs.
+function trackRequests(fetcher) {
+  return async (...args) => {
+    startLoading();
+    try {
+      return await fetcher(...args);
+    } finally {
+      stopLoading();
+    }
+  };
+}
+window.fetch = trackRequests(window.fetch.bind(window));
+if (native.webFetch) native.webFetch = trackRequests(native.webFetch);
+
+function setBusy(button, busy = true) {
+  if (!button) return;
+  button.classList.toggle("is-loading", busy);
+  button.setAttribute("aria-busy", String(busy));
+  button.disabled = busy;
+}
+
+function loadingMarkup(text = "Loading") {
+  return `<div class="loading-block" role="status"><span class="spinner" aria-hidden="true"></span><span>${safeText(text)}...</span></div>`;
+}
+
 function showToast(message) {
   elements.toast.textContent = message;
   elements.toast.hidden = false;
@@ -582,8 +660,9 @@ function detailMarkup(event) {
       <p class="detail-label">${safeText(event.type.join(" / "))} / ${safeText(formatFullDate(event.date))}</p>
       <h2 id="detailTitle">${safeText(event.title)}${event.vibeApproved ? '<img class="detail-approved" src="assets/vibe-approved.png" alt="Vibe approved" />' : ""}</h2>
       <p class="detail-location">${safeText(event.location)}</p>
-      <div class="detail-facts"><span>${safeText(event.region)}</span><span>${safeText(event.ageRange)}</span><span>From ${safeText(event.price)}</span></div>
-      <p class="detail-description">${safeText(description)}</p>
+      <div class="detail-facts"><span>${safeText(areaLabel(event))}</span><span>${safeText(event.ageRange)}</span><span>${safeText(priceLabel(event))}</span></div>
+      ${detailInfo(event)}
+      <div class="detail-description">${description.split(/\n{2,}|\n/).filter(Boolean).map((line) => `<p>${safeText(line)}</p>`).join("")}</div>
       ${event.tags?.length ? `<div class="detail-tags">${event.tags.map((tag) => `<span>${safeText(tag)}</span>`).join("")}</div>` : ""}
       ${hooks.detailExtras(event)}
       <div class="detail-actions">
@@ -596,6 +675,19 @@ function detailMarkup(event) {
         : '<p class="detail-tickets is-disabled"><span>Tickets not live yet</span></p><p class="detail-fine">Save it and we will remind you closer to the date.</p>'}
     </div>
   </article>`;
+}
+
+// Times, lineup, music and dress code, when the event has them.
+function detailInfo(event) {
+  const rows = [
+    ["Time", event.startTime ? `${event.startTime}${event.endTime ? ` to ${event.endTime}` : ""}` : ""],
+    ["Entry", event.priceType === "free_before" || event.priceType === "free" ? priceLabel(event) : ""],
+    ["Lineup", event.lineup],
+    ["Music", event.music],
+    ["Dress code", event.dressCode],
+  ].filter(([, value]) => value);
+  if (!rows.length) return "";
+  return `<dl class="detail-info">${rows.map(([label, value]) => `<dt>${label}</dt><dd>${safeText(value)}</dd>`).join("")}</dl>`;
 }
 
 let detailReturnFocus = null;
@@ -684,7 +776,7 @@ async function toggleNearMe() {
     return;
   }
 
-  elements.nearMeButton.disabled = true;
+  setBusy(elements.nearMeButton, true);
   elements.nearMeButton.lastElementChild.textContent = "Finding you";
   try {
     state.userPosition = await native.getPosition();
@@ -696,7 +788,7 @@ async function toggleNearMe() {
   } catch (error) {
     setStatus(error.message || "Could not find your location", true);
   } finally {
-    elements.nearMeButton.disabled = false;
+    setBusy(elements.nearMeButton, false);
     elements.nearMeButton.lastElementChild.textContent = "Near me";
   }
 }
@@ -789,6 +881,7 @@ function buildMultiselect(panel, toggle, values, stateSet, allLabel) {
       if (checkbox.checked) stateSet.add(checkbox.value);
       else stateSet.delete(checkbox.value);
       updateToggleLabel(toggle, stateSet, allLabel);
+      if (panel === elements.cityPanel) syncAreaFilter();
       render();
     });
   });
@@ -814,18 +907,29 @@ function setupDropdown(toggle, panel) {
 
 document.addEventListener("click", closeAllDropdowns);
 
+// Areas are London areas, so they only show when London is in view.
+function syncAreaFilter() {
+  const hasAreas = elements.locationPanel.querySelector("input");
+  elements.locationPanel.closest(".select-wrap").hidden = !hasAreas || (state.cities.size > 0 && !state.cities.has("London"));
+}
+
 function populateFilters() {
   const dates = [...new Set(state.events.map((event) => event.date))].sort();
   const types = [...new Set(state.events.flatMap((event) => event.type))].sort();
   types.push("Vibe Approved");
   const ages = [...new Set(state.events.map((event) => event.ageRange))].sort((a, b) => Number.parseInt(a) - Number.parseInt(b));
-  const regionOrder = ["North London", "North West London", "East London", "South London", "West London"];
+  const regionOrder = ["North London", "North West London", "East London", "South London", "West London", "Central London"];
   const regions = regionOrder.filter((region) => state.events.some((event) => event.region === region));
+  // London first, then every other city that has events, A to Z.
+  const cities = [...new Set(state.events.map((event) => event.city || "London"))]
+    .sort((first, second) => (first === "London" ? -1 : second === "London" ? 1 : first.localeCompare(second)));
 
   populateSelect(elements.dateFilter, dates, formatFilterDate);
   populateSelect(elements.ageFilter, ages);
   buildMultiselect(elements.typePanel, elements.typeToggle, types, state.types, "All event types");
-  buildMultiselect(elements.locationPanel, elements.locationToggle, regions, state.regions, "All London");
+  buildMultiselect(elements.cityPanel, elements.cityToggle, cities, state.cities, "All cities");
+  buildMultiselect(elements.locationPanel, elements.locationToggle, regions, state.regions, "All areas");
+  syncAreaFilter();
 }
 
 function resetFilters() {
@@ -833,6 +937,7 @@ function resetFilters() {
   state.age = "all";
   state.types.clear();
   state.regions.clear();
+  state.cities.clear();
   state.search = "";
   elements.dateFilter.value = "all";
   elements.ageFilter.value = "all";
@@ -854,6 +959,7 @@ function closeMobileRail() {
 function setLoading(isLoading) {
   elements.refreshButton.classList.toggle("loading", isLoading);
   elements.refreshButton.disabled = isLoading;
+  elements.syncStatus.classList.toggle("is-loading", isLoading);
 }
 
 async function loadEvents() {
@@ -918,7 +1024,15 @@ elements.searchInput.addEventListener("input", (event) => { state.search = event
 elements.clearFilters.addEventListener("click", resetFilters);
 elements.emptyReset.addEventListener("click", resetFilters);
 elements.refreshButton.addEventListener("click", loadEvents);
-elements.mobileListButton.addEventListener("click", openMobileRail);
+elements.mobileListButton.addEventListener("click", () => afterPaint(async () => {
+  openMobileRail();
+  // Give the first flyers a moment to arrive before the spinner goes.
+  const images = [...elements.eventRail.querySelectorAll("img")].slice(0, 4).filter((image) => !image.complete);
+  await Promise.race([
+    Promise.all(images.map((image) => new Promise((done) => { image.onload = image.onerror = done; }))),
+    new Promise((done) => setTimeout(done, 1200)),
+  ]);
+}, elements.mobileListButton));
 elements.closeRail.addEventListener("click", closeMobileRail);
 elements.nearMeButton.addEventListener("click", toggleNearMe);
 elements.savedButton.addEventListener("click", toggleSavedOnly);
@@ -962,6 +1076,7 @@ document.addEventListener("keydown", (event) => {
 
 setupDropdown(elements.typeToggle, elements.typePanel);
 setupDropdown(elements.locationToggle, elements.locationPanel);
+setupDropdown(elements.cityToggle, elements.cityPanel);
 
 const mapPanel = document.querySelector(".map-panel");
 const mapElement = document.querySelector("#map");
@@ -1007,6 +1122,13 @@ window.VibeApp = {
   formatFullDate,
   placeholderFlyer,
   placeLine,
+  priceLabel,
+  areaLabel,
+  loadingMarkup,
+  setBusy,
+  afterPaint,
+  startLoading,
+  stopLoading,
   iconSvg,
   stripEmoji,
   isSaved,

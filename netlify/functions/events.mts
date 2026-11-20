@@ -8,8 +8,16 @@ type SheetEvent = {
   location: string;
   postcode: string;
   region: string;
+  city: string;
   ageRange: string;
   price: string;
+  priceType: "paid" | "free" | "free_before" | "unknown";
+  freeBefore: string;
+  startTime: string;
+  endTime: string;
+  lineup: string;
+  music: string;
+  dressCode: string;
   ticketUrl: string;
   vibeApproved: boolean;
   latitude: number;
@@ -117,6 +125,54 @@ function regionFromPostcode(postcode: string): string {
   if (["N", "EN"].includes(area)) return "North London";
   if (["NW", "WD", "HA"].includes(area)) return "North West London";
   return "";
+}
+
+// Cities by postcode area. London is every London-area postcode; add more
+// here as the app grows. Anything else uses the "City" column in the sheet,
+// or the town postcodes.io gives back.
+const CITY_BY_AREA: Record<string, string> = {
+  E: "London", EC: "London", IG: "London", RM: "London", SE: "London", SW: "London", CR: "London", BR: "London",
+  SM: "London", W: "London", WC: "London", TW: "London", UB: "London", KT: "London", N: "London", EN: "London",
+  NW: "London", WD: "London", HA: "London", DA: "London",
+  M: "Manchester", B: "Birmingham", L: "Liverpool", LS: "Leeds", BS: "Bristol", NG: "Nottingham", S: "Sheffield",
+  G: "Glasgow", EH: "Edinburgh", CF: "Cardiff", NE: "Newcastle", LE: "Leicester", CV: "Coventry", BN: "Brighton",
+  MK: "Milton Keynes", LU: "Luton", RG: "Reading", OX: "Oxford", CB: "Cambridge", SO: "Southampton",
+  PO: "Portsmouth", BT: "Belfast", BD: "Bradford", WV: "Wolverhampton", NN: "Northampton", SS: "Southend",
+  CM: "Chelmsford", AB: "Aberdeen", DD: "Dundee", PL: "Plymouth", EX: "Exeter", HU: "Hull", SR: "Sunderland",
+  ME: "Kent", CT: "Kent", BA: "Bath", DE: "Derby", ST: "Stoke", PR: "Preston", BL: "Bolton", OL: "Oldham",
+};
+
+// Rough city centres, used when a row names the city but has no postcode.
+const CITY_CENTRES: Record<string, [number, number]> = {
+  manchester: [53.4808, -2.2426], birmingham: [52.4862, -1.8904], liverpool: [53.4084, -2.9916],
+  leeds: [53.8008, -1.5491], bristol: [51.4545, -2.5879], nottingham: [52.9548, -1.1581],
+  sheffield: [53.3811, -1.4701], glasgow: [55.8642, -4.2518], edinburgh: [55.9533, -3.1883],
+  cardiff: [51.4816, -3.1791], newcastle: [54.9783, -1.6178], leicester: [52.6369, -1.1398],
+  brighton: [50.8225, -0.1372], coventry: [52.4068, -1.5197], reading: [51.4543, -0.9781],
+};
+
+function cityFromPostcode(postcode: string): string {
+  return CITY_BY_AREA[postcode.match(/^[A-Z]+/)?.[0] || ""] || "";
+}
+
+function titleCase(value: string): string {
+  return value.trim().toLowerCase().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+// Turns "Tickets From" (or a brand's price choice) into a clear price.
+function readPrice(raw: string, type = "", freeBefore = ""): { price: string; priceType: SheetEvent["priceType"]; freeBefore: string } {
+  const text = raw.trim();
+  const money = (value: string) => {
+    const clean = value.replace(/^from\s+/i, "").trim();
+    return /^\d+(\.\d{1,2})?$/.test(clean) ? `£${clean}` : clean;
+  };
+  if (type === "free") return { price: "Free", priceType: "free", freeBefore: "" };
+  if (type === "free_before") return { price: text ? money(text) : "", priceType: "free_before", freeBefore: freeBefore.trim() };
+  const before = text.match(/free\s+(?:entry\s+)?before\s+([0-9:.apm\s]+)(?:[,;/]\s*(?:then\s+)?(?:from\s+)?(.*))?/i);
+  if (before) return { price: before[2] ? money(before[2]) : "", priceType: "free_before", freeBefore: before[1].trim() };
+  if (/^(free|free entry|£?0(\.00)?)$/i.test(text)) return { price: "Free", priceType: "free", freeBefore: "" };
+  if (!text) return { price: "See tickets", priceType: "unknown", freeBefore: "" };
+  return { price: money(text), priceType: "paid", freeBefore: "" };
 }
 
 function isYes(value = ""): boolean {
@@ -286,6 +342,14 @@ async function approvedSubmissions(): Promise<Array<{ row: number; record: Recor
           location: row.location || "",
           age_range: row.age_range || "18+",
           tickets_from: row.price || "",
+          __price_type: row.price_type || "",
+          __free_before: row.free_before || "",
+          start_time: row.start_time || "",
+          end_time: row.end_time || "",
+          lineup: row.lineup || "",
+          music: row.music || "",
+          dress_code: row.dress_code || "",
+          city: row.city || "",
           vibe_approved: "",
           flyer_image_url: flyerPublicUrl(row.flyer_path),
           ticket_link: row.ticket_url || "",
@@ -370,13 +434,26 @@ export default async (request: Request) => {
         isApproximate = true;
         if (!postcode) postcode = textFallback.postcode;
       }
-      if (!region && textFallback) region = regionFromPostcode(textFallback.postcode);
-      if (!region && position) region = "London";
+      // City: the sheet's City column wins, then the postcode, then a city
+      // named in the location text.
+      const namedCity = Object.keys(CITY_CENTRES).find((name) => location.toLowerCase().includes(name)) || "";
+      if (!position && namedCity) {
+        position = CITY_CENTRES[namedCity];
+        isApproximate = true;
+      }
+      const city = titleCase(record.city || "") || cityFromPostcode(postcode) || (namedCity ? titleCase(namedCity) : "")
+        || (textFallback ? "London" : "") || (position ? "UK" : "");
+      if (city === "London") {
+        if (!region && textFallback) region = regionFromPostcode(textFallback.postcode);
+        if (!region && position) region = "London";
+      } else {
+        region = "";
+      }
 
       if (!position) {
         return skip(postcode
           ? `Postcode ${postcode} could not be found`
-          : "No postcode in Location and no London area mentioned");
+          : "No postcode in Location and no city or London area mentioned");
       }
 
       const duplicateKey = `${title.toLowerCase()}|${date}|${(postcode || location).toLowerCase()}`;
@@ -394,8 +471,14 @@ export default async (request: Request) => {
         location,
         postcode,
         region,
+        city,
         ageRange: record.age_range || "All ages",
-        price: record.tickets_from || "See tickets",
+        ...readPrice(record.tickets_from || "", record.__price_type || "", record.__free_before || ""),
+        startTime: (record.start_time || record.time || record.doors || "").trim().slice(0, 20),
+        endTime: (record.end_time || "").trim().slice(0, 20),
+        lineup: (record.lineup || record.line_up || "").trim().slice(0, 300),
+        music: (record.music || record.genres || "").trim().slice(0, 200),
+        dressCode: (record.dress_code || "").trim().slice(0, 200),
         ticketUrl: safeUrl(record.ticket_link || ""),
         vibeApproved: isYes(record.vibe_approved),
         latitude: position[0],
@@ -404,7 +487,7 @@ export default async (request: Request) => {
         tags: parseTags(record.additional_tags || ""),
         flyerImageUrl,
         flyerUrl: flyerImageUrl,
-        description: (record.description || "").trim().slice(0, 600),
+        description: (record.description || "").trim().slice(0, 2000),
         instagram: parseHandles(record.instagram || ""),
         source: record.__source === "submission" ? "submission" : "sheet",
       });
