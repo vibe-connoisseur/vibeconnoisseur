@@ -122,12 +122,12 @@
     if (creatorId === me().id) return;
     const following = social.follows.has(creatorId);
     native.haptic(following ? "LIGHT" : "MEDIUM");
-    if (button) button.disabled = true;
+    app.setBusy(button, true);
     const request = following
       ? client().from("follows").delete().eq("creator_id", creatorId).eq("follower_id", me().id)
       : client().from("follows").insert({ follower_id: me().id, creator_id: creatorId });
     const { error } = await request;
-    if (button) button.disabled = false;
+    app.setBusy(button, false);
     if (error) {
       app.showToast("Couldn't update that. Try again.");
       return;
@@ -233,6 +233,7 @@
         <div class="post-grid" id="followingPosts"><p class="drawer-fine">Loading posts...</p></div>`
       : me() ? views.emptyFeed("You're not following anyone yet", "Follow brands and DJs below to see their events and posts here.") : ""}
       ${views.sectionHead(followed.length ? "More brands and DJs" : "Brands and DJs", suggestions.length)}
+      <button type="button" class="drawer-secondary see-all" data-directory>See all brands and DJs</button>
       ${suggestions.length ? `<label class="creator-search"><span class="sr-only">Search brands and DJs</span><input type="search" id="creatorSearch" placeholder="Search brands and DJs" autocomplete="off" /></label>
         <div class="creator-list" id="creatorList">${suggestions.map(creatorCard).join("")}</div>`
       : '<p class="drawer-fine">More brands and DJs are joining soon.</p>'}`;
@@ -244,6 +245,65 @@
       const grid = container.querySelector("#followingPosts");
       if (grid) grid.innerHTML = posts.length ? posts.map(postTile).join("") : '<p class="drawer-fine">No posts yet from who you follow.</p>';
     }
+  }
+
+  // ---------- Brands and DJs directory ----------
+
+  const directory = { type: "all", sort: "popular", query: "" };
+
+  function directoryCard(creator) {
+    const upcoming = eventsForCreator(creator).length;
+    return `<article class="directory-card" data-name="${esc(`${creator.name} ${creator.username} ${creator.instagram || ""}`.toLowerCase())}">
+      <button type="button" class="directory-open" data-profile="${esc(creator.id)}">
+        ${avatarMarkup(creator, "avatar-lg")}
+        <strong>${esc(creator.name)}</strong>
+        <small>${typeLabel(creator)} / ${compact(creator.followers_count)} followers${upcoming ? ` / ${plural(upcoming, "event")}` : ""}</small>
+        ${creator.bio ? `<p>${esc(creator.bio.slice(0, 90))}${creator.bio.length > 90 ? "..." : ""}</p>` : ""}
+      </button>
+      ${me() && creator.id === me().id ? "" : followButton(creator, "is-small")}
+    </article>`;
+  }
+
+  function drawDirectory(body) {
+    const all = [...social.creators.values()].filter(visible)
+      .filter((creator) => directory.type === "all" || creator.account_type === directory.type);
+    all.sort((first, second) => directory.sort === "newest"
+      ? String(second.created_at).localeCompare(String(first.created_at))
+      : directory.sort === "name" ? first.name.localeCompare(second.name)
+      : second.followers_count - first.followers_count);
+    const chip = (group, value, label) => `<button type="button" class="${directory[group] === value ? "is-active" : ""}" data-directory-${group}="${value}">${label}</button>`;
+    body.innerHTML = `
+      <div class="directory-tools">
+        <label class="creator-search"><span class="sr-only">Search brands and DJs</span><input type="search" id="directorySearch" placeholder="Search by name or Instagram" autocomplete="off" value="${esc(directory.query)}" /></label>
+        <div class="admin-filters">${chip("type", "all", "All")}${chip("type", "brand", "Brands")}${chip("type", "dj", "DJs")}</div>
+        <div class="admin-filters is-sort">${chip("sort", "popular", "Most followed")}${chip("sort", "newest", "Newest")}${chip("sort", "name", "A to Z")}</div>
+      </div>
+      ${all.length ? `<div class="directory-grid" id="directoryList">${all.map(directoryCard).join("")}</div>`
+        : '<p class="drawer-fine profile-empty">No approved brands or DJs here yet.</p>'}
+      <p class="drawer-fine profile-empty" id="directoryNone" hidden>No matches.</p>`;
+    filterDirectory(body);
+  }
+
+  function filterDirectory(root = document) {
+    const query = directory.query.trim().toLowerCase();
+    let shown = 0;
+    root.querySelectorAll("#directoryList .directory-card").forEach((card) => {
+      card.hidden = Boolean(query) && !card.dataset.name.includes(query);
+      if (!card.hidden) shown += 1;
+    });
+    const none = root.querySelector("#directoryNone");
+    if (none) none.hidden = shown > 0 || !root.querySelector("#directoryList");
+  }
+
+  async function openDirectory() {
+    app.closeEventDetail?.();
+    openSheet("Brands and DJs", async (body) => {
+      if (!social.ready) {
+        body.innerHTML = app.loadingMarkup();
+        await load();
+      }
+      drawDirectory(body);
+    });
   }
 
   // ---------- sheet (profile, post, composer) ----------
@@ -377,7 +437,7 @@
           ${post.media.length > 1 ? `<p class="post-count">${plural(post.media.length, "item")}. Swipe to see more.</p>` : ""}
           ${post.caption ? `<p class="post-caption">${esc(post.caption)}</p>` : ""}
           <div class="post-actions">
-            ${mine
+            ${mine || account().isAdmin
               ? `<button type="button" class="drawer-danger" data-delete-post="${esc(post.id)}">Delete post</button>`
               : `<button type="button" class="drawer-secondary" data-report-post="${esc(post.id)}">Report</button>
                  <button type="button" class="drawer-secondary" data-block="${esc(post.creator_id)}">Block ${esc(creator?.name || "")}</button>`}
@@ -388,16 +448,20 @@
 
   async function deletePost(postId, button) {
     if (!window.confirm("Delete this post?")) return;
-    button.disabled = true;
+    app.setBusy(button, true);
     const post = postCache.get(postId);
-    const { error } = await client().from("posts").delete().eq("id", postId);
+    const mine = me() && post?.creator_id === me().id;
+    const { error } = mine
+      ? await client().from("posts").delete().eq("id", postId)
+      : await account().api("/api/admin", { method: "POST", body: JSON.stringify({ kind: "post", action: "delete", id: postId }) })
+        .then(() => ({ error: null }), (failure) => ({ error: failure }));
     if (error) {
-      button.disabled = false;
+      app.setBusy(button, false);
       app.showToast("Couldn't delete it. Try again.");
       return;
     }
     const paths = (post?.media || []).flatMap((item) => [item.path, item.poster]).filter(Boolean);
-    if (paths.length) client().storage.from("media").remove(paths);
+    if (paths.length && mine) client().storage.from("media").remove(paths);
     const creator = social.creators.get(post?.creator_id);
     if (creator) creator.posts_count = Math.max(0, creator.posts_count - 1);
     app.showToast("Post deleted");
@@ -470,6 +534,7 @@
         <button type="button" class="drawer-secondary" data-share-profile="${esc(creatorId)}">Share profile</button>
         <button type="button" class="drawer-secondary" data-report-profile="${esc(creatorId)}">Report profile</button>
         <button type="button" class="drawer-danger" data-block="${esc(creatorId)}">Block ${esc(creator?.name || "")}</button>
+        ${adminOptions(creatorId)}
       </div>`;
     }, { push: true });
   }
@@ -634,7 +699,7 @@
         errorElement.textContent = "";
         if (!files.length) return void (errorElement.textContent = "Add at least one photo or video.");
         const button = form.querySelector('button[type="submit"]');
-        button.disabled = true;
+        app.setBusy(button, true);
         const label = button.firstElementChild;
         const uid = me().id;
         const uploaded = [];
@@ -692,7 +757,7 @@
           if (uploaded.length) client().storage.from("media").remove(uploaded);
           errorElement.textContent = account().friendlyError?.(error) || error.message;
         } finally {
-          button.disabled = false;
+          app.setBusy(button, false);
           label.textContent = "Share post";
         }
       });
@@ -883,9 +948,9 @@
 
   async function addFriend(personId, button) {
     if (!requireSignIn("Sign in to add friends.")) return;
-    if (button) button.disabled = true;
+    app.setBusy(button, true);
     const { error } = await client().from("follows").insert({ follower_id: me().id, creator_id: personId });
-    if (button) button.disabled = false;
+    app.setBusy(button, false);
     if (error && !/duplicate/i.test(error.message)) {
       app.showToast("Couldn't add them. Try again.");
       return;
@@ -956,12 +1021,35 @@
     }, { push: !sheet.overlay.hidden });
   }
 
+  // Only you (admins) see these.
+  function adminOptions(id) {
+    if (!account().isAdmin) return "";
+    return `<p class="drawer-fine">Admin</p>
+      <button type="button" class="drawer-secondary" data-admin-edit="${esc(id)}">Edit profile</button>
+      <button type="button" class="drawer-danger" data-admin-delete="${esc(id)}">Delete account</button>`;
+  }
+
+  async function adminDeleteAccount(id, button) {
+    if (!window.confirm("Delete this account for good? Their profile, posts, saved events and submissions are removed. This can't be undone.")) return;
+    app.setBusy(button, true);
+    try {
+      await account().api("/api/admin", { method: "POST", body: JSON.stringify({ kind: "account", action: "delete", id }) });
+      app.showToast("Account deleted");
+      closeSheet();
+      await load();
+    } catch (error) {
+      app.showToast(account().friendlyError(error));
+      app.setBusy(button, false);
+    }
+  }
+
   function personMore(personId) {
     const person = friends.people.get(personId);
     openSheet(person?.name || "Options", (body) => {
       body.innerHTML = `<div class="post-actions is-stacked">
         <button type="button" class="drawer-secondary" data-report-profile="${esc(personId)}">Report</button>
         <button type="button" class="drawer-danger" data-block="${esc(personId)}">Block ${esc(person?.name || "")}</button>
+        ${adminOptions(personId)}
       </div>`;
     }, { push: true });
   }
@@ -969,6 +1057,19 @@
   // ---------- events ----------
 
   document.addEventListener("click", (event) => {
+    const directoryTarget = event.target.closest("[data-directory], [data-directory-type], [data-directory-sort], [data-admin-edit], [data-admin-delete]");
+    if (directoryTarget) {
+      const data = directoryTarget.dataset;
+      if (data.adminEdit) {
+        closeSheet();
+        return account().openAdminProfile?.(data.adminEdit);
+      }
+      if (data.adminDelete) return adminDeleteAccount(data.adminDelete, directoryTarget);
+      if ("directory" in data) return openDirectory();
+      if (data.directoryType) directory.type = data.directoryType;
+      if (data.directorySort) directory.sort = data.directorySort;
+      return drawDirectory(sheet.body);
+    }
     const friendTarget = event.target.closest("[data-friend-add], [data-friend-cancel], [data-friend-remove], [data-friend-ignore], [data-person], [data-person-more]");
     if (friendTarget) {
       const data = friendTarget.dataset;
@@ -1017,6 +1118,11 @@
   });
 
   document.addEventListener("input", (event) => {
+    if (event.target.id === "directorySearch") {
+      directory.query = event.target.value;
+      filterDirectory(sheet.body);
+      return;
+    }
     if (event.target.id === "friendSearch") {
       clearTimeout(friendSearchTimer);
       friendSearchTimer = setTimeout(() => searchPeople(event.target.value), 250);
@@ -1069,5 +1175,5 @@
     if (document.visibilityState === "visible" && me()) loadFriends().then(() => document.dispatchEvent(new CustomEvent("vibe:following-changed")));
   });
 
-  window.VibeSocial = { openProfile, openPerson, openBlocked, openComposer, renderFollowing, load, state: social, friends };
+  window.VibeSocial = { openProfile, openPerson, openBlocked, openComposer, openDirectory, renderFollowing, load, reload: load, state: social, friends };
 })();

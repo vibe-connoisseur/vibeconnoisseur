@@ -80,7 +80,7 @@
           <span class="feed-date">${safeText(app.formatFilterDate(event.date))} / ${safeText(event.type[0])}</span>
           <strong>${safeText(event.title)}</strong>
           <span class="feed-venue">${safeText(app.placeLine(event))}</span>
-          <span class="feed-price">${event.price ? `From ${safeText(event.price)}` : "Price TBC"}</span>
+          <span class="feed-price">${safeText(app.priceLabel(event))}</span>
         </span>
       </button>
       <button type="button" class="feed-save ${saved ? "is-saved" : ""}" data-save-id="${safeText(event.id)}" aria-pressed="${saved}" aria-label="${saved ? "Remove from saved" : "Save event"}">
@@ -158,7 +158,7 @@
   // ---------- search ----------
 
   function searchText(event) {
-    return [event.title, event.location, event.postcode, event.region, event.description, ...(event.type || []), ...(event.tags || []), ...(event.instagram || [])]
+    return [event.title, event.location, event.postcode, event.region, event.city, event.description, event.lineup, event.music, ...(event.type || []), ...(event.tags || []), ...(event.instagram || [])]
       .join(" ").toLowerCase();
   }
 
@@ -267,11 +267,11 @@
     current = tab;
     VIEWS.forEach((name) => {
       ui.views[name].hidden = name !== tab;
-      const link = ui.tabs.querySelector(`[data-tab="${name}"]`);
-      if (!link) return;
-      link.classList.toggle("is-active", name === tab);
-      if (name === tab) link.setAttribute("aria-current", "page");
-      else link.removeAttribute("aria-current");
+      document.querySelectorAll(`[data-tab="${name}"]`).forEach((link) => {
+        link.classList.toggle("is-active", name === tab);
+        if (name === tab) link.setAttribute("aria-current", "page");
+        else link.removeAttribute("aria-current");
+      });
     });
     document.body.dataset.tab = tab;
     if (tab === "map") {
@@ -302,7 +302,9 @@
     const tab = tabFromHash();
     if (tab) {
       native.haptic();
-      showTab(tab);
+      // Highlight the tab straight away, then draw it, so there's no dead tap.
+      document.querySelectorAll(`[data-tab="${tab}"]`).forEach((link) => link.classList.add("is-active"));
+      app.afterPaint(() => showTab(tab));
     }
   });
 

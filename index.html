@@ -8,7 +8,7 @@
     <title>Where's The Vibe | London Event Map</title>
     <link rel="preload" href="assets/fonts/norwester.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=16" />
+    <link rel="stylesheet" href="styles.css?v=17" />
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -27,11 +27,17 @@
           <span class="status-pulse"></span>
           <span>Reading the guest list</span>
         </div>
-        <button class="refresh-button" id="refreshButton" type="button" aria-label="Refresh events">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.3 9A7 7 0 0 0 6.1 6.1L4 8m16 8-2.1 1.9A7 7 0 0 1 5.7 15" /></svg>
-          <span>Refresh</span>
-        </button>
+        <div class="header-actions">
+          <a class="header-search" href="#search" data-tab="search" aria-label="Search events">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>
+          </a>
+          <button class="refresh-button" id="refreshButton" type="button" aria-label="Refresh events">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.3 9A7 7 0 0 0 6.1 6.1L4 8m16 8-2.1 1.9A7 7 0 0 1 5.7 15" /></svg>
+            <span>Refresh</span>
+          </button>
+        </div>
       </header>
+      <div class="loading-bar" id="loadingBar" hidden><span></span></div>
 
       <nav class="top-tabs" id="topTabs" aria-label="Sections">
         <a href="#discover" data-tab="discover" class="is-active">Discover</a>
@@ -39,7 +45,6 @@
         <a href="#weekend" data-tab="weekend">This weekend</a>
         <a href="#following" data-tab="following">Following</a>
         <a href="#map" data-tab="map">Map</a>
-        <a href="#search" data-tab="search" class="tab-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>Search</a>
       </nav>
 
       <main id="top">
@@ -82,7 +87,7 @@
 
         <section class="view" id="view-map" data-view="map" hidden>
 
-        <section class="filter-bar" aria-label="Filter London events">
+        <section class="filter-bar" aria-label="Filter events">
           <div class="filter-heading">
             <button id="clearFilters" type="button">Reset all</button>
           </div>
@@ -104,15 +109,20 @@
             <select id="ageFilter"><option value="all">All age ranges</option></select>
           </label>
           <div class="select-wrap multiselect">
-            <span>Location</span>
-            <button type="button" class="multiselect-toggle" id="locationFilterToggle" aria-expanded="false" aria-haspopup="listbox">All London</button>
+            <span>City</span>
+            <button type="button" class="multiselect-toggle" id="cityFilterToggle" aria-expanded="false" aria-haspopup="listbox">All cities</button>
+            <div class="multiselect-panel" id="cityFilterPanel" hidden></div>
+          </div>
+          <div class="select-wrap multiselect">
+            <span>Area</span>
+            <button type="button" class="multiselect-toggle" id="locationFilterToggle" aria-expanded="false" aria-haspopup="listbox">All areas</button>
             <div class="multiselect-panel" id="locationFilterPanel" hidden></div>
           </div>
         </section>
 
         <section class="map-section" aria-label="Event map and results">
           <div class="map-panel">
-            <div id="map" aria-label="Interactive map of London event locations"></div>
+            <div id="map" aria-label="Interactive map of event locations"></div>
             <div class="gesture-hint" id="gestureHint" aria-hidden="true">
               <svg viewBox="0 0 40 40"><path d="M15 15 9 9m0 0v6m0-6h6M25 25l6 6m0 0v-6m0 6h-6" /></svg>
               <span>Pinch to zoom</span>
@@ -189,9 +199,9 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="assets/vendor/supabase.js?v=2.119.0" defer></script>
     <script src="native.js?v=6" defer></script>
-    <script src="app.js?v=16" defer></script>
-    <script src="account.js?v=10" defer></script>
-    <script src="social.js?v=6" defer></script>
-    <script src="views.js?v=6" defer></script>
+    <script src="app.js?v=17" defer></script>
+    <script src="account.js?v=11" defer></script>
+    <script src="social.js?v=7" defer></script>
+    <script src="views.js?v=7" defer></script>
   </body>
 </html>

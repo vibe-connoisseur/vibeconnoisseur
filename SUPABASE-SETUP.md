@@ -19,6 +19,18 @@ Takes about 30 minutes. Steps 1 to 6 are easiest on a laptop.
 
 Run `supabase/2-social.sql` the same way (SQL Editor, New query, paste, Run). It adds Brand and DJ profiles, follows, photo and video posts, reports and blocks. It's safe to run on a project that already has `setup.sql`.
 
+### 2c. Admin history, profile edit approvals and free events (added November 2026)
+
+Run `supabase/6-admin.sql` the same way, after `3-reminders.sql`, `4-friends.sql` and `5-friend-alerts.sql`. It adds:
+
+- the History log behind Approvals (every approve, decline, edit and delete)
+- profile edits that wait for approval once a Brand or DJ is approved
+- free events, free before a time, start and end times, lineup, music and dress code on event submissions
+
+### 2d. Keep people signed in
+
+In Supabase, go to **Project Settings > JWT Keys** (on older projects: **Authentication > Settings**) and set **Access token expiry** to `86400` (one day), then Save. Logins then renew once a day instead of every hour, so iOS pausing the app mid-renewal rarely signs anyone out. If someone is still signed out unexpectedly, the reason shows in Netlify > Logs > Functions > `account` as "Login diag".
+
 ## 3. Make sign-in emails send a code
 
 The app asks for a 6-digit code, so the emails need to include it.

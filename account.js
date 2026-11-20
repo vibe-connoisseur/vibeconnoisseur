@@ -17,7 +17,7 @@
     reminderThreeDays: false,
   };
   const AGE_OPTIONS = ["All Ages", "16+", "18+", "21+", "23+", "25+", "30+"];
-  const SUBMIT_TYPES = ["Night Party", "Day Party", "Brunch", "Concert", "Festival", "Games Night", "LGBTQ+", "Other"];
+  const SUBMIT_TYPES = ["Night Party", "Day Party", "Brunch", "Concert", "Festival", "Games Night", "Social", "LGBTQ+", "Other"];
 
   const ui = {
     button: document.querySelector("#menuButton"),
@@ -190,6 +190,27 @@
 
   // ---------- Supabase ----------
 
+  // Records why a login renewal failed, so unexpected sign-outs can be traced.
+  let signingOut = false;
+  function reportLogin(event, detail = "") {
+    try {
+      native.webFetch(`${native.apiBase}/api/account`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "diag", event, detail: `${detail} | ${native.isNative ? "app" : "web"}` }),
+      }).catch(() => undefined);
+    } catch {}
+  }
+
+  async function authFetch(input, init) {
+    const response = await native.webFetch(input, init);
+    const url = String(input && input.url ? input.url : input);
+    if (!response.ok && /\/auth\/v1\/token/.test(url) && /refresh_token/.test(url)) {
+      response.clone().text().then((text) => reportLogin("renew_failed", `${response.status} ${text.slice(0, 200)}`)).catch(() => undefined);
+    }
+    return response;
+  }
+
   function sessionStorageAdapter() {
     return {
       getItem: async (key) => (await native.storage.get(`sb-${key}`)) ?? null,
@@ -209,7 +230,7 @@
       if (!config.accounts) return;
       account.client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
         auth: { storage: sessionStorageAdapter(), persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-        global: { fetch: native.webFetch },
+        global: { fetch: authFetch },
       });
       account.configured = true;
       account.supabaseUrl = config.supabaseUrl;
@@ -221,7 +242,11 @@
         account.session = session;
         // Supabase advises not running its own calls inside this callback.
         if (event === "SIGNED_IN" && !wasSignedIn) setTimeout(() => onSignedIn(), 0);
-        if (event === "SIGNED_OUT") setTimeout(onSignedOut, 0);
+        if (event === "SIGNED_OUT") {
+          if (!signingOut) reportLogin("signed_out_unexpectedly");
+          signingOut = false;
+          setTimeout(onSignedOut, 0);
+        }
       });
       if (signedIn()) await onSignedIn({ silent: true });
     } catch {
@@ -438,6 +463,7 @@
     settings: { title: "Settings", render: renderSettings },
     submit: { title: "Submit an event", render: renderSubmit, needsAccount: true },
     admin: { title: "Approvals", render: renderAdmin, needsAccount: true },
+    "admin-profile": { title: "Edit profile", render: renderAdminProfile, needsAccount: true },
   };
 
   function showView(name, { replace = false } = {}) {
@@ -471,6 +497,7 @@
       admin: '<path d="m5 12 4 4 10-10"/>',
       saved: '<path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2Z"/>',
       mail: '<rect x="3" y="5" width="18" height="14"/><path d="m3 6 9 7 9-7"/>',
+      discover: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1-3.5 3.5-5.5 6.5-5.5s5.5 2 6.5 5.5"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14c2.5 0 4 1.8 4.5 4.5"/>',
     };
     return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || ""}</svg>`;
   }
@@ -500,11 +527,12 @@
         ${menuItem("preferences", "Preferences", "Favourite events, areas, reminders")}
         ${menuItem("settings", "Settings", "Account, notifications, privacy")}
         ${menuItem("submit", "Submit an event", "For event brands and promoters")}
-        ${account.isAdmin ? menuItem("admin", "Approvals", "Events, Brand and DJ profiles, reports", account.pendingCount ? String(account.pendingCount) : "") : ""}
+        ${account.isAdmin ? menuItem("admin", "Approvals", "Events, Brand and DJ profiles, reports, history", account.pendingCount ? String(account.pendingCount) : "") : ""}
       </nav>
       <nav class="drawer-list drawer-list-minor">
         <button type="button" class="drawer-item" data-action="saved">${icon("saved")}<span><strong>Saved events</strong></span><em>${savedTotal}</em><b aria-hidden="true">&rsaquo;</b></button>
         <button type="button" class="drawer-item${friendRequestCount() ? " has-dot" : ""}" data-action="following">${icon("profile")}<span><strong>Following</strong></span><b aria-hidden="true">&rsaquo;</b></button>
+        <button type="button" class="drawer-item" data-action="directory">${icon("discover")}<span><strong>Brands and DJs</strong><small>Find who to follow</small></span><b aria-hidden="true">&rsaquo;</b></button>
         ${isApprovedCreator() ? `<button type="button" class="drawer-item" data-action="my-public-profile">${icon("submit")}<span><strong>My public profile</strong><small>Posts, followers, new post</small></span><b aria-hidden="true">&rsaquo;</b></button>` : ""}
       </nav>`;
   }
@@ -564,10 +592,10 @@
       errorElement.textContent = "Enter a valid email address.";
       return;
     }
-    button && (button.disabled = true);
+    app.setBusy(button, true);
     errorElement.textContent = "";
     const { error } = await account.client.auth.signInWithOtp({ email: clean, options: { shouldCreateUser: true } });
-    button && (button.disabled = false);
+    app.setBusy(button, false);
     if (error) {
       errorElement.textContent = friendlyError(error);
       return;
@@ -584,10 +612,10 @@
       errorElement.textContent = "Enter the full code from the email.";
       return;
     }
-    button.disabled = true;
+    app.setBusy(button, true);
     errorElement.textContent = "";
     const { error } = await account.client.auth.verifyOtp({ email: account.otpEmail, token, type: "email" });
-    button.disabled = false;
+    app.setBusy(button, false);
     if (error) {
       errorElement.textContent = friendlyError(error);
       return;
@@ -596,7 +624,7 @@
   }
 
   async function signInWithApple(button) {
-    button.disabled = true;
+    app.setBusy(button, true);
     try {
       const result = await native.appleSignIn();
       const { error } = await account.client.auth.signInWithIdToken({ provider: "apple", token: result.identityToken, nonce: result.nonce });
@@ -610,7 +638,7 @@
       const message = friendlyError(error);
       if (message) app.showToast(message);
     } finally {
-      button.disabled = false;
+      app.setBusy(button, false);
     }
   }
 
@@ -630,14 +658,35 @@
     rejected: "Not approved this time. Update your details and save to send it again.",
   };
 
+  // Approved brands and DJs: changes to their public details wait for approval.
+  const PUBLIC_FIELDS = ["display_name", "brand_name", "username", "bio", "instagram", "avatar_path", "account_type"];
+  async function loadPendingEdit() {
+    if (!signedIn() || !account.client) return false;
+    const before = JSON.stringify(account.pendingEdit || null);
+    const { data } = await account.client.from("profile_edits").select("id,changes,created_at")
+      .eq("user_id", account.session.user.id).eq("status", "pending").maybeSingle();
+    account.pendingEdit = data || null;
+    return JSON.stringify(account.pendingEdit) !== before;
+  }
+
   function renderProfile() {
-    const profile = account.profile || {};
+    if (isApprovedCreator() && !renderProfile.checking) {
+      renderProfile.checking = true;
+      loadPendingEdit().then((changed) => {
+        renderProfile.checking = false;
+        if (changed && viewStack[viewStack.length - 1] === "profile") renderProfile();
+      }).catch(() => { renderProfile.checking = false; });
+    }
+    const pending = isApprovedCreator() ? account.pendingEdit : null;
+    const profile = { ...(account.profile || {}), ...(pending?.changes || {}) };
     const type = profile.account_type || "fan";
     const isCreator = type === "brand" || type === "dj";
     const status = isCreator ? profile.creator_status : "";
     const avatar = mediaUrl(profile.avatar_path);
     ui.content.innerHTML = `
-      ${status && STATUS_TEXT[status] ? `<div class="status-banner status-${esc(status)}">${esc(STATUS_TEXT[status])}</div>` : ""}
+      ${pending ? `<div class="status-banner status-pending">Your changes are waiting for approval. Your profile shows your current details until they're approved.
+          <button type="button" class="drawer-link" data-action="withdraw-edit">Withdraw changes</button></div>`
+        : status && STATUS_TEXT[status] ? `<div class="status-banner status-${esc(status)}">${esc(STATUS_TEXT[status])}${status === "approved" ? " Changes to your public details are reviewed before they go live." : ""}</div>` : ""}
       <form class="drawer-form drawer-section" id="profileForm" novalidate>
         <fieldset class="field segmented segmented-3">
           <legend>Account type</legend>
@@ -698,7 +747,7 @@
       if (!instagram) return void (errorElement.textContent = "Add your Instagram so we can verify you and link your events.");
       if (!form.elements.terms.checked) return void (errorElement.textContent = "Agree to the terms to get a public profile.");
     }
-    button.disabled = true;
+    app.setBusy(button, true);
     try {
       const changes = {
         display_name: form.elements.display_name.value.trim().slice(0, 60) || null,
@@ -716,6 +765,10 @@
         const upload = await account.client.storage.from("media").upload(path, blob, { contentType: "image/jpeg" });
         if (upload.error) throw upload.error;
         changes.avatar_path = path;
+      }
+      if (isApprovedCreator() && type !== "fan") {
+        await sendForApproval(changes);
+        return;
       }
       const { data, error } = await account.client
         .from("profiles")
@@ -735,8 +788,50 @@
     } catch (error) {
       errorElement.textContent = friendlyError(error);
     } finally {
-      button.disabled = false;
+      app.setBusy(button, false);
     }
+  }
+
+  async function sendForApproval(changes) {
+    const current = account.profile || {};
+    const diff = {};
+    for (const key of PUBLIC_FIELDS) {
+      const same = key === "instagram"
+        ? String(changes[key] || "").replace(/^@/, "").toLowerCase() === String(current[key] || "").replace(/^@/, "").toLowerCase()
+        : (changes[key] ?? null) === (current[key] ?? null);
+      if (key in changes && !same) diff[key] = changes[key] ?? null;
+    }
+    // Keep a photo already waiting for approval if no new one was picked.
+    if (!("avatar_path" in changes) && account.pendingEdit?.changes?.avatar_path) diff.avatar_path = account.pendingEdit.changes.avatar_path;
+    if (diff.username) {
+      const { data: taken } = await account.client.from("people").select("id").ilike("username", diff.username).neq("id", current.id).limit(1);
+      if (taken?.length) throw new Error("That username is taken. Try another.");
+    }
+    const table = account.client.from("profile_edits");
+    const existing = account.pendingEdit;
+    if (!Object.keys(diff).length) {
+      if (existing) await table.delete().eq("id", existing.id);
+      account.pendingEdit = null;
+      app.showToast(existing ? "Changes withdrawn" : "Nothing has changed");
+      renderProfile();
+      return;
+    }
+    const result = existing
+      ? await table.update({ changes: diff, created_at: new Date().toISOString() }).eq("id", existing.id).select("id,changes,created_at").single()
+      : await table.insert({ user_id: account.session.user.id, changes: diff }).select("id,changes,created_at").single();
+    if (result.error) throw result.error;
+    account.pendingEdit = result.data;
+    app.showToast("Sent for approval. Your changes go live once approved.");
+    renderProfile();
+  }
+
+  async function withdrawEdit(button) {
+    if (!account.pendingEdit) return;
+    app.setBusy(button, true);
+    await account.client.from("profile_edits").delete().eq("id", account.pendingEdit.id);
+    account.pendingEdit = null;
+    app.showToast("Changes withdrawn");
+    renderProfile();
   }
 
   // ---------- preferences ----------
@@ -835,14 +930,15 @@
   async function deleteAccount(button) {
     const sure = window.confirm("Delete your account? Your profile, saved events and submissions will be permanently removed.");
     if (!sure) return;
-    button.disabled = true;
+    app.setBusy(button, true);
     try {
       await api("/api/account", { method: "DELETE" });
+      signingOut = true;
       await account.client.auth.signOut({ scope: "local" });
       app.showToast("Your account has been deleted.");
     } catch (error) {
       app.showToast(friendlyError(error));
-      button.disabled = false;
+      app.setBusy(button, false);
     }
   }
 
@@ -863,16 +959,35 @@
         </div>
         <label class="field"><span>Venue and postcode *</span><input name="location" maxlength="200" placeholder="e.g. Brixton Jamm, SW9 6LH" required /></label>
         <div class="field-pair">
-          <label class="field"><span>Age</span>
-            <select name="age_range">${AGE_OPTIONS.map((age) => `<option ${age === "18+" ? "selected" : ""}>${age}</option>`).join("")}</select>
+          <label class="field"><span>Starts</span><input name="start_time" type="time" /></label>
+          <label class="field"><span>Ends</span><input name="end_time" type="time" /></label>
+        </div>
+        <label class="field"><span>Age</span>
+          <select name="age_range">${AGE_OPTIONS.map((age) => `<option ${age === "18+" ? "selected" : ""}>${age}</option>`).join("")}</select>
+        </label>
+        <fieldset class="field segmented segmented-3">
+          <legend>Entry</legend>
+          <label><input type="radio" name="price_type" value="paid" checked /><span>Paid</span></label>
+          <label><input type="radio" name="price_type" value="free" /><span>Free</span></label>
+          <label><input type="radio" name="price_type" value="free_before" /><span>Free before</span></label>
+        </fieldset>
+        <div class="field-pair">
+          <label class="field" data-price-field="free_before" hidden><span>Free before *</span><input name="free_before" type="time" /></label>
+          <label class="field" data-price-field="price"><span data-price-label>Tickets from</span>
+            <span class="money-input"><b aria-hidden="true">£</b><input name="price" inputmode="decimal" maxlength="12" placeholder="15.00" /></span>
           </label>
-          <label class="field"><span>Tickets from</span><input name="price" maxlength="40" placeholder="£15.00" /></label>
         </div>
         <label class="field"><span>Ticket link</span><input name="ticket_url" type="url" inputmode="url" autocapitalize="off" placeholder="https://" /></label>
-        <label class="field"><span>Description</span>
-          <textarea name="description" rows="4" maxlength="600" placeholder="What should people know? Music, dress code, who's playing."></textarea>
+        <label class="field"><span>About the event *</span>
+          <textarea name="description" rows="6" maxlength="2000" placeholder="Tell people what the night is about: the vibe, the crowd, hosts, special guests, food and drink, anything that makes it worth going."></textarea>
+          <small class="field-count" data-count-for="description">0 / 2000</small>
         </label>
-        <label class="field"><span>Music or tags</span><input name="tags" maxlength="200" placeholder="Afrobeats, Amapiano, R&B" /></label>
+        <label class="field"><span>Lineup</span><input name="lineup" maxlength="300" placeholder="DJs, hosts and acts, e.g. DJ Tunez, Shaq The Yungin" /></label>
+        <div class="field-pair">
+          <label class="field"><span>Music</span><input name="music" maxlength="200" placeholder="Afrobeats, Amapiano, R&B" /></label>
+          <label class="field"><span>Dress code</span><input name="dress_code" maxlength="200" placeholder="e.g. All white, smart casual" /></label>
+        </div>
+        <label class="field"><span>Tags</span><input name="tags" maxlength="200" placeholder="Rooftop, day party, bottomless" /></label>
         <label class="field"><span>Instagram</span><input name="instagram" maxlength="100" autocapitalize="off" value="${esc(profile.instagram || "")}" placeholder="@yourbrand" /></label>
         <label class="field file-field"><span>Flyer</span>
           <input name="flyer" type="file" accept="image/jpeg,image/png,image/webp" />
@@ -887,6 +1002,14 @@
         <div id="mySubmissions"><p class="drawer-fine">Loading...</p></div>
       </div>`;
     loadMySubmissions();
+  }
+
+  // Free hides the price; "Free before" asks for the time and the price after.
+  function syncPriceFields(form) {
+    const type = form.querySelector('[name="price_type"]:checked')?.value || "paid";
+    form.querySelector('[data-price-field="free_before"]').hidden = type !== "free_before";
+    form.querySelector('[data-price-field="price"]').hidden = type === "free";
+    form.querySelector("[data-price-label]").textContent = type === "free_before" ? "Then from (optional)" : "Tickets from";
   }
 
   async function loadMySubmissions() {
@@ -944,12 +1067,17 @@
     if (title.length < 3) return void (errorElement.textContent = "Add the event name.");
     if (!date || date < todayString()) return void (errorElement.textContent = "Pick a date that hasn't passed.");
     if (location.length < 4) return void (errorElement.textContent = "Add the venue and postcode.");
-    if (!/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i.test(location) && !/london/i.test(location)) {
+    if (!/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i.test(location)) {
       return void (errorElement.textContent = "Include the venue's postcode so it lands in the right place on the map.");
     }
     if (value("ticket_url") && !ticketUrl) return void (errorElement.textContent = "That ticket link doesn't look right.");
+    const priceType = form.querySelector('[name="price_type"]:checked')?.value || "paid";
+    const amount = value("price").replace(/^£\s*/, "").replace(/^from\s+/i, "");
+    if (amount && !/^\d+(\.\d{1,2})?$/.test(amount)) return void (errorElement.textContent = "Enter the price as a number, for example 15 or 12.50.");
+    if (priceType === "free_before" && !value("free_before")) return void (errorElement.textContent = "Add the time entry is free until.");
+    if (value("description").length < 40) return void (errorElement.textContent = "Tell people a bit more about the event (at least a couple of sentences).");
 
-    button.disabled = true;
+    app.setBusy(button, true);
     button.firstElementChild.textContent = "Sending...";
     try {
       let flyerPath = null;
@@ -968,7 +1096,14 @@
         event_date: date,
         location,
         age_range: value("age_range") || "18+",
-        price: value("price") || null,
+        price: priceType === "free" || !amount ? null : `£${amount}`,
+        price_type: priceType,
+        free_before: priceType === "free_before" ? value("free_before") : null,
+        start_time: value("start_time") || null,
+        end_time: value("end_time") || null,
+        lineup: value("lineup") || null,
+        music: value("music") || null,
+        dress_code: value("dress_code") || null,
         ticket_url: ticketUrl || null,
         description: value("description") || null,
         tags: value("tags") || null,
@@ -981,35 +1116,130 @@
       app.showToast("Submitted. We'll review it shortly.");
       form.reset();
       form.querySelector(".file-preview").hidden = true;
+      syncPriceFields(form);
       loadMySubmissions();
     } catch (error) {
       errorElement.textContent = friendlyError(error);
     } finally {
-      button.disabled = false;
+      app.setBusy(button, false);
       button.firstElementChild.textContent = "Submit for approval";
     }
   }
 
   // ---------- approvals (admin only) ----------
 
+  // ---------- approvals (admin only) ----------
+
+  let adminTab = "review";
+  let adminFilter = "all";
+  const FIELD_LABELS = { display_name: "Name", brand_name: "Profile name", username: "Username", bio: "Bio", instagram: "Instagram", avatar_path: "Photo", account_type: "Account type" };
+  const TYPE_LABEL = { fan: "Going out", brand: "Brand", dj: "DJ" };
+
+  function when(value) {
+    if (!value) return "";
+    const date = new Date(value);
+    return `${date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}, ${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
+  function reviewButtons(kind, buttons) {
+    return `<div class="review-actions">${buttons.map(([action, label, style]) =>
+      `<button type="button" class="${style === "primary" ? "drawer-primary" : style === "danger" ? "drawer-danger" : "drawer-secondary"}" data-review="${action}" data-kind="${kind}"><span>${label}</span></button>`).join("")}</div>`;
+  }
+
+  function priceText(row) {
+    if (row.price_type === "free") return "Free";
+    if (row.price_type === "free_before") return `Free before ${row.free_before || "a set time"}${row.price ? `, then from ${row.price}` : ""}`;
+    return row.price ? `From ${row.price}` : "";
+  }
+
+  function submissionCard(row, buttons) {
+    const details = [
+      row.start_time ? `${row.start_time}${row.end_time ? ` to ${row.end_time}` : ""}` : "",
+      row.lineup ? `Lineup: ${row.lineup}` : "",
+      row.music ? `Music: ${row.music}` : "",
+      row.dress_code ? `Dress code: ${row.dress_code}` : "",
+    ].filter(Boolean);
+    return `<article class="review-card" data-id="${esc(row.id)}">
+      ${row.flyer_url ? `<img src="${esc(row.flyer_url)}" alt="" loading="lazy" />` : ""}
+      <div>
+        <p class="review-meta">${esc(row.event_type)} / ${esc(row.event_date)} / ${esc(row.age_range)}${row.status && row.status !== "pending" ? ` / <b class="pill pill-${esc(row.status)}">${row.status === "approved" ? "Live" : "Declined"}</b>` : ""}</p>
+        <h4>${esc(row.title)}</h4>
+        <p>${esc([row.location, row.city].filter(Boolean).join(", "))}${priceText(row) ? ` / ${esc(priceText(row))}` : ""}</p>
+        ${details.map((line) => `<p class="review-meta">${esc(line)}</p>`).join("")}
+        ${row.description ? `<p class="review-description">${esc(row.description)}</p>` : ""}
+        ${row.tags ? `<p class="review-meta">${esc(row.tags)}</p>` : ""}
+        <p class="review-meta">${esc(row.instagram || "")} ${esc(row.contact_email || "")}</p>
+        ${row.ticket_url ? `<a class="drawer-link" href="${esc(row.ticket_url)}" target="_blank" rel="noopener">Check ticket link ${app.iconSvg("arrow-up-right")}</a>` : '<p class="review-meta">No ticket link</p>'}
+        ${reviewButtons("submission", buttons)}
+      </div>
+    </article>`;
+  }
+
+  function creatorCard(row, buttons, extra = "") {
+    return `<article class="review-card" data-id="${esc(row.id)}">
+      ${row.avatar_url ? `<img src="${esc(row.avatar_url)}" alt="" loading="lazy" class="is-round" />` : ""}
+      <div>
+        <p class="review-meta">${esc(TYPE_LABEL[row.account_type] || "Brand")}${extra}</p>
+        <h4>${esc(row.brand_name || row.display_name || "")}</h4>
+        <p>@${esc(row.username || "")} / Instagram ${esc(row.instagram || "none")}</p>
+        ${row.bio ? `<p class="review-description">${esc(row.bio)}</p>` : ""}
+        ${row.instagram ? `<a class="drawer-link" href="https://www.instagram.com/${esc(String(row.instagram).replace(/^@/, ""))}/" target="_blank" rel="noopener">Check their Instagram ${app.iconSvg("arrow-up-right")}</a>` : ""}
+        ${reviewButtons("creator", buttons)}
+      </div>
+    </article>`;
+  }
+
+  function editCard(row) {
+    const current = row.current || {};
+    const changes = Object.entries(row.changes || {}).filter(([key]) => FIELD_LABELS[key]);
+    const show = (key, value) => key === "account_type" ? TYPE_LABEL[value] || value : key === "avatar_path" ? "New photo" : value || "(empty)";
+    return `<article class="review-card" data-id="${esc(row.id)}">
+      ${row.new_avatar_url ? `<img src="${esc(row.new_avatar_url)}" alt="" loading="lazy" class="is-round" />` : current.avatar_url ? `<img src="${esc(current.avatar_url)}" alt="" loading="lazy" class="is-round" />` : ""}
+      <div>
+        <p class="review-meta">Profile changes / ${esc(when(row.created_at))}</p>
+        <h4>${esc(current.brand_name || current.display_name || "")} <small>@${esc(current.username || "")}</small></h4>
+        <dl class="change-list">${changes.map(([key, value]) => `
+          <dt>${esc(FIELD_LABELS[key])}</dt>
+          <dd>${key === "avatar_path" ? "" : `<s>${esc(show(key, current[key]))}</s>`}<span>${esc(show(key, value))}</span></dd>`).join("")}
+        </dl>
+        ${reviewButtons("edit", [["approve", "Approve changes", "primary"], ["reject", "Decline"]])}
+      </div>
+    </article>`;
+  }
+
+  function adminTabs() {
+    const tabs = [["review", "To review"], ["creators", "Brands and DJs"], ["events", "Uploaded events"], ["log", "History"]];
+    return `<div class="admin-tabs" role="tablist">${tabs.map(([key, label]) =>
+      `<button type="button" role="tab" class="${adminTab === key ? "is-active" : ""}" aria-selected="${adminTab === key}" data-admin-tab="${key}">${label}</button>`).join("")}</div>`;
+  }
+
+  function filterChips(options) {
+    return `<div class="admin-filters">${options.map(([key, label]) =>
+      `<button type="button" class="${adminFilter === key ? "is-active" : ""}" data-admin-filter="${key}">${label}</button>`).join("")}</div>`;
+  }
+
   async function renderAdmin() {
-    ui.content.innerHTML = '<div class="drawer-section"><p class="drawer-fine">Loading...</p></div>';
-    let result;
+    ui.content.innerHTML = `${adminTabs()}<div class="drawer-section">${app.loadingMarkup()}</div>`;
+    const section = () => ui.content.querySelector(".drawer-section");
     try {
-      result = await api("/api/admin");
+      if (adminTab === "creators") return renderAdminCreators(section);
+      if (adminTab === "events") return renderAdminEvents(section);
+      if (adminTab === "log") return renderAdminLog(section);
+      return renderAdminReview(section);
     } catch (error) {
-      ui.content.innerHTML = `<div class="drawer-section"><p class="drawer-fine">${esc(error.status === 403 ? "This area is only for the Where's The Vibe team." : friendlyError(error))}</p></div>`;
-      return;
+      section().innerHTML = `<p class="drawer-fine">${esc(error.status === 403 ? "This area is only for the Where's The Vibe team." : friendlyError(error))}</p>`;
     }
+  }
+
+  async function renderAdminReview(section) {
+    const result = await api("/api/admin");
     const submissions = result.submissions || [];
     const creators = result.creators || [];
     const reports = result.reports || [];
-    account.pendingCount = submissions.length + creators.length + reports.length;
+    const edits = result.edits || [];
+    account.pendingCount = submissions.length + creators.length + reports.length + edits.length;
     updateMenuButton();
-    const actions = (kind, buttons) => `<div class="review-actions">${buttons.map(([action, label, primary]) =>
-      `<button type="button" class="${primary ? "drawer-primary" : "drawer-secondary"}" data-review="${action}" data-kind="${kind}"><span>${label}</span></button>`).join("")}</div>`;
-
-    ui.content.innerHTML = `<div class="drawer-section">
+    section().innerHTML = `
       <p class="drawer-lead">${account.pendingCount ? `${account.pendingCount} waiting for review.` : "All caught up."}</p>
 
       <h3 class="drawer-heading">Reports ${reports.length ? `(${reports.length})` : ""}</h3>
@@ -1021,65 +1251,195 @@
             <h4>${esc(row.posts ? "Post" : "Profile")}${row.profiles?.username ? `: @${esc(row.profiles.username)}` : ""}</h4>
             <p class="review-description">"${esc(row.reason)}"</p>
             ${row.posts?.caption ? `<p>${esc(row.posts.caption.slice(0, 200))}</p>` : ""}
-            ${actions("report", row.post_id ? [["remove", "Remove post", true], ["dismiss", "Keep it"]] : [["dismiss", "Mark as handled", true]])}
+            ${reviewButtons("report", row.post_id ? [["remove", "Remove post", "primary"], ["dismiss", "Keep it"]] : [["dismiss", "Mark as handled", "primary"]])}
           </div>
         </article>`).join("") : '<p class="drawer-fine">No open reports. Apple expects reports to be dealt with within 24 hours.</p>'}
 
-      <h3 class="drawer-heading">Brand and DJ profiles ${creators.length ? `(${creators.length})` : ""}</h3>
-      ${creators.length ? creators.map((row) => `
-        <article class="review-card" data-id="${esc(row.id)}">
-          ${row.avatar_url ? `<img src="${esc(row.avatar_url)}" alt="" loading="lazy" class="is-round" />` : ""}
-          <div>
-            <p class="review-meta">${esc(row.account_type === "dj" ? "DJ" : "Brand")}</p>
-            <h4>${esc(row.brand_name || row.display_name || "")}</h4>
-            <p>@${esc(row.username || "")} / Instagram ${esc(row.instagram || "none")}</p>
-            ${row.bio ? `<p class="review-description">${esc(row.bio)}</p>` : ""}
-            ${row.instagram ? `<a class="drawer-link" href="https://www.instagram.com/${esc(String(row.instagram).replace(/^@/, ""))}/" target="_blank" rel="noopener">Check their Instagram ${app.iconSvg("arrow-up-right")}</a>` : ""}
-            ${actions("creator", [["approve", "Approve", true], ["reject", "Reject"]])}
-          </div>
-        </article>`).join("") : '<p class="drawer-fine">No profiles waiting.</p>'}
+      <h3 class="drawer-heading">New Brand and DJ profiles ${creators.length ? `(${creators.length})` : ""}</h3>
+      ${creators.length ? creators.map((row) => creatorCard(row, [["approve", "Approve", "primary"], ["reject", "Decline"]])).join("") : '<p class="drawer-fine">No profiles waiting.</p>'}
+
+      <h3 class="drawer-heading">Profile changes ${edits.length ? `(${edits.length})` : ""}</h3>
+      ${edits.length ? edits.map(editCard).join("") : '<p class="drawer-fine">No profile changes waiting.</p>'}
 
       <h3 class="drawer-heading">Events ${submissions.length ? `(${submissions.length})` : ""}</h3>
-      ${submissions.length ? submissions.map((row) => `
-        <article class="review-card" data-id="${esc(row.id)}">
-          ${row.flyer_url ? `<img src="${esc(row.flyer_url)}" alt="" loading="lazy" />` : ""}
-          <div>
-            <p class="review-meta">${esc(row.event_type)} / ${esc(row.event_date)} / ${esc(row.age_range)}</p>
-            <h4>${esc(row.title)}</h4>
-            <p>${esc(row.location)}${row.price ? ` / From ${esc(row.price)}` : ""}</p>
-            ${row.description ? `<p class="review-description">${esc(row.description)}</p>` : ""}
-            ${row.tags ? `<p class="review-meta">${esc(row.tags)}</p>` : ""}
-            <p class="review-meta">${esc(row.instagram || "")} ${esc(row.contact_email || "")}</p>
-            ${row.ticket_url ? `<a class="drawer-link" href="${esc(row.ticket_url)}" target="_blank" rel="noopener">Check ticket link ${app.iconSvg("arrow-up-right")}</a>` : '<p class="review-meta">No ticket link</p>'}
-            ${actions("submission", [["approve", "Approve", true], ["reject", "Reject"]])}
-          </div>
-        </article>`).join("") : '<p class="drawer-fine">No events waiting.</p>'}
-    </div>`;
+      ${submissions.length ? submissions.map((row) => submissionCard(row, [["approve", "Approve", "primary"], ["reject", "Decline"], ["delete", "Delete", "danger"]])).join("") : '<p class="drawer-fine">No events waiting.</p>'}`;
+  }
+
+  async function renderAdminCreators(section) {
+    const { creators = [] } = await api("/api/admin?view=creators");
+    const shown = creators.filter((row) => adminFilter === "all" || row.creator_status === adminFilter);
+    const approved = creators.filter((row) => row.creator_status === "approved").length;
+    section().innerHTML = `
+      ${filterChips([["all", `All (${creators.length})`], ["approved", `Approved (${approved})`], ["rejected", `Declined (${creators.length - approved})`]])}
+      ${shown.length ? shown.map((row) => creatorCard(row,
+        row.creator_status === "approved"
+          ? [["view", "View"], ["edit-profile", "Edit"], ["reject", "Decline"], ["delete-account", "Delete account", "danger"]]
+          : [["edit-profile", "Edit"], ["approve", "Approve", "primary"], ["delete-account", "Delete account", "danger"]],
+        ` / <b class="pill pill-${esc(row.creator_status)}">${row.creator_status === "approved" ? "Approved" : "Declined"}</b>${row.creator_reviewed_at ? ` ${esc(when(row.creator_reviewed_at))}` : ""}`)).join("")
+        : '<p class="drawer-fine">Nothing here yet. Every Brand and DJ you approve or decline is listed here.</p>'}`;
+  }
+
+  async function renderAdminEvents(section) {
+    const { events = [] } = await api("/api/admin?view=events");
+    const today = todayString();
+    const shown = events.filter((row) => adminFilter === "all"
+      || (adminFilter === "upcoming" && row.status === "approved" && row.event_date >= today)
+      || (adminFilter === "past" && row.status === "approved" && row.event_date < today)
+      || (adminFilter === "rejected" && row.status === "rejected"));
+    section().innerHTML = `
+      ${filterChips([["all", "All"], ["upcoming", "Live"], ["past", "Past"], ["rejected", "Declined"]])}
+      ${shown.length ? shown.map((row) => submissionCard(row, [["delete", "Delete", "danger"]])).join("")
+        : '<p class="drawer-fine">No uploaded events here.</p>'}
+      <p class="drawer-fine">Events from your Google Sheet are managed in the sheet.</p>`;
+  }
+
+  const LOG_TEXT = {
+    "creator:approved": "Approved Brand or DJ", "creator:declined": "Declined Brand or DJ",
+    "edit:approved": "Approved profile changes", "edit:declined": "Declined profile changes",
+    "profile:edited": "Edited profile", "account:deleted": "Deleted account",
+    "event:approved": "Approved event", "event:declined": "Declined event", "event:deleted": "Deleted event",
+    "report:removed": "Removed reported post", "report:kept": "Kept reported content", "post:deleted": "Deleted post",
+  };
+
+  async function renderAdminLog(section) {
+    const { log = [] } = await api("/api/admin?view=log");
+    const groups = { all: () => true, creator: (row) => ["creator", "edit", "profile"].includes(row.kind), event: (row) => row.kind === "event", account: (row) => row.kind === "account", report: (row) => row.kind === "report" };
+    const shown = log.filter(groups[adminFilter] || groups.all);
+    section().innerHTML = `
+      ${filterChips([["all", "All"], ["creator", "Brands and DJs"], ["event", "Events"], ["account", "Accounts"], ["report", "Reports"]])}
+      ${shown.length ? `<ol class="admin-log">${shown.map((row) => `
+        <li>
+          <p class="review-meta">${esc(when(row.created_at))}</p>
+          <p><strong>${esc(LOG_TEXT[`${row.kind}:${row.action}`] || `${row.kind} ${row.action}`)}</strong> ${esc(row.title || "")}</p>
+          ${row.detail?.note ? `<p class="review-meta">Note: ${esc(row.detail.note)}</p>` : ""}
+        </li>`).join("")}</ol>`
+        : '<p class="drawer-fine">No history yet. Every approval, decline, edit and delete from now on is listed here.</p>'}`;
   }
 
   const DONE_TEXT = {
     "submission:approve": "Approved. It will be on the map shortly.",
-    "submission:reject": "Rejected.",
+    "submission:reject": "Declined.",
+    "submission:delete": "Deleted.",
     "creator:approve": "Approved. Their profile is now public.",
-    "creator:reject": "Rejected.",
+    "creator:reject": "Declined.",
+    "edit:approve": "Changes approved and live.",
+    "edit:reject": "Changes declined.",
+    "account:delete": "Account deleted.",
     "report:remove": "Post removed.",
     "report:dismiss": "Marked as handled.",
   };
 
   async function review(card, action, kind) {
-    const note = kind === "submission" && action === "reject" ? window.prompt("Reason (shown to the brand, optional):", "") : "";
+    const id = card.dataset.id;
+    if (action === "view") {
+      closeDrawer();
+      return window.VibeSocial?.openProfile(id);
+    }
+    if (action === "edit-profile") return openAdminProfile(id);
+    if (action === "delete-account") {
+      kind = "account";
+      action = "delete";
+      if (!window.confirm("Delete this account for good? Their profile, posts, saved events and submissions are removed. This can't be undone.")) return;
+    }
+    if (kind === "submission" && action === "delete" && !window.confirm("Delete this event for good? It disappears from the app straight away.")) return;
+    const note = (kind === "submission" || kind === "edit" || kind === "creator") && action === "reject"
+      ? window.prompt("Reason (optional):", "") : "";
     if (note === null) return;
     if (kind === "report" && action === "remove" && !window.confirm("Remove this post for everyone?")) return;
-    card.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    const pressed = card.querySelector(`[data-review="${action === "delete" && kind === "account" ? "delete-account" : action}"]`);
+    const buttons = [...card.querySelectorAll(".review-actions button")];
+    buttons.forEach((button) => { button.disabled = true; });
+    app.setBusy(pressed, true);
     try {
-      await api("/api/admin", { method: "POST", body: JSON.stringify({ kind, id: card.dataset.id, action, note }) });
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ kind, id, action, note }) });
       card.classList.add("is-done");
       card.querySelector(".review-actions").innerHTML = `<p class="review-meta">${DONE_TEXT[`${kind}:${action}`] || "Done."}</p>`;
-      account.pendingCount = Math.max(0, account.pendingCount - 1);
-      updateMenuButton();
+      if (adminTab === "review") {
+        account.pendingCount = Math.max(0, account.pendingCount - 1);
+        updateMenuButton();
+      }
+      if (kind === "account" || kind === "creator" || kind === "edit") window.VibeSocial?.reload?.();
     } catch (error) {
       app.showToast(friendlyError(error));
-      card.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+      app.setBusy(pressed, false);
+      buttons.forEach((button) => { button.disabled = false; });
+    }
+  }
+
+  // Your own edit of anyone's profile. Only admins see this.
+  function openAdminProfile(id) {
+    account.adminTarget = id;
+    if (!isOpen()) openDrawer("admin-profile");
+    else showView("admin-profile");
+  }
+
+  async function renderAdminProfile() {
+    const id = account.adminTarget;
+    ui.content.innerHTML = `<div class="drawer-section">${app.loadingMarkup()}</div>`;
+    let profile;
+    try {
+      ({ profile } = await api(`/api/admin?view=profile&id=${encodeURIComponent(id)}`));
+    } catch (error) {
+      ui.content.innerHTML = `<div class="drawer-section"><p class="drawer-fine">${esc(friendlyError(error))}</p></div>`;
+      return;
+    }
+    const type = profile.account_type || "fan";
+    ui.content.innerHTML = `
+      <div class="status-banner">Editing as admin. Changes go live straight away and are logged in History.</div>
+      <form class="drawer-form drawer-section" id="adminProfileForm" data-id="${esc(profile.id)}" novalidate>
+        <fieldset class="field segmented segmented-3">
+          <legend>Account type</legend>
+          ${["fan", "brand", "dj"].map((value) => `<label><input type="radio" name="account_type" value="${value}" ${type === value ? "checked" : ""} /><span>${TYPE_LABEL[value]}</span></label>`).join("")}
+        </fieldset>
+        <div class="avatar-field">
+          <span class="avatar avatar-lg">${profile.avatar_url ? `<img src="${esc(profile.avatar_url)}" alt="" />` : esc((profile.brand_name || profile.display_name || "?").slice(0, 1).toUpperCase())}</span>
+          <label class="drawer-secondary avatar-pick">Change photo<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" hidden /></label>
+        </div>
+        <label class="field"><span>Username</span><input name="username" maxlength="30" autocapitalize="off" value="${esc(profile.username || "")}" /></label>
+        <label class="field"><span>Name</span><input name="display_name" maxlength="60" value="${esc(profile.display_name || "")}" /></label>
+        <label class="field"><span>Profile name</span><input name="brand_name" maxlength="80" value="${esc(profile.brand_name || "")}" /></label>
+        <label class="field"><span>Bio</span><textarea name="bio" rows="3" maxlength="300">${esc(profile.bio || "")}</textarea></label>
+        <label class="field"><span>Instagram</span><input name="instagram" maxlength="100" autocapitalize="off" value="${esc(profile.instagram || "")}" /></label>
+        <button class="drawer-primary" type="submit"><span>Save changes</span><span>&rarr;</span></button>
+        <p class="form-error" role="alert"></p>
+      </form>
+      <div class="drawer-section">
+        <article class="review-card is-plain" data-id="${esc(profile.id)}">
+          ${reviewButtons("account", [["delete-account", "Delete this account", "danger"]])}
+        </article>
+      </div>`;
+  }
+
+  async function saveAdminProfile(form) {
+    const errorElement = form.querySelector(".form-error");
+    const button = form.querySelector('button[type="submit"]');
+    errorElement.textContent = "";
+    app.setBusy(button, true);
+    try {
+      const fields = {
+        account_type: form.querySelector('[name="account_type"]:checked')?.value || "fan",
+        username: form.elements.username.value,
+        display_name: form.elements.display_name.value,
+        brand_name: form.elements.brand_name.value,
+        bio: form.elements.bio.value,
+        instagram: form.elements.instagram.value,
+      };
+      const file = form.elements.avatar?.files?.[0];
+      if (file) {
+        const blob = await resizeImage(file, 600);
+        const path = `${account.session.user.id}/admin-avatar-${Date.now()}.jpg`;
+        const upload = await account.client.storage.from("media").upload(path, blob, { contentType: "image/jpeg" });
+        if (upload.error) throw upload.error;
+        fields.avatar_path = path;
+      }
+      await api("/api/admin", { method: "POST", body: JSON.stringify({ kind: "profile", action: "update", id: form.dataset.id, fields }) });
+      app.showToast("Profile updated");
+      window.VibeSocial?.reload?.();
+      goBack();
+    } catch (error) {
+      errorElement.textContent = friendlyError(error);
+    } finally {
+      app.setBusy(button, false);
     }
   }
 
@@ -1094,6 +1454,16 @@
   });
 
   ui.content.addEventListener("click", (event) => {
+    const tab = event.target.closest("[data-admin-tab], [data-admin-filter]");
+    if (tab) {
+      if (tab.dataset.adminTab) {
+        adminTab = tab.dataset.adminTab;
+        adminFilter = "all";
+      } else {
+        adminFilter = tab.dataset.adminFilter;
+      }
+      return renderAdmin();
+    }
     const target = event.target.closest("[data-view], [data-action], [data-review], #otpResend, #otpChange, #appleSignIn, #signOut, #deleteAccount, #showFavourites");
     if (!target) return;
     if (target.dataset.view) return showView(target.dataset.view);
@@ -1107,6 +1477,11 @@
       closeDrawer();
       location.hash = "#following";
       return;
+    }
+    if (target.dataset.action === "withdraw-edit") return withdrawEdit(target);
+    if (target.dataset.action === "directory") {
+      closeDrawer();
+      return window.VibeSocial?.openDirectory();
     }
     if (target.dataset.action === "my-public-profile") {
       closeDrawer();
@@ -1122,7 +1497,10 @@
       return renderSignIn();
     }
     if (target.id === "appleSignIn") return signInWithApple(target);
-    if (target.id === "signOut") return forgetPushToken().finally(() => account.client.auth.signOut());
+    if (target.id === "signOut") {
+      signingOut = true;
+      return forgetPushToken().finally(() => account.client.auth.signOut());
+    }
     if (target.id === "deleteAccount") return deleteAccount(target);
     if (target.id === "showFavourites") {
       app.applyFavourites(account.prefs.favouriteTypes, account.prefs.favouriteAreas);
@@ -1140,6 +1518,7 @@
     if (form.id === "otpForm") return verifyCode(form.querySelector("#otpCode").value, errorElement, button);
     if (form.id === "submitForm") return submitEvent(form);
     if (form.id === "profileForm") return saveProfile(form);
+    if (form.id === "adminProfileForm") return saveAdminProfile(form);
   });
 
   ui.content.addEventListener("change", (event) => {
@@ -1152,10 +1531,12 @@
       });
       return;
     }
+    if (event.target.name === "price_type") return syncPriceFields(form);
     if (event.target.name === "account_type") {
       const creator = event.target.value !== "fan";
       form.querySelectorAll(".creator-fields").forEach((element) => { element.hidden = !creator; });
-      form.querySelector(".creator-note").hidden = creator;
+      const note = form.querySelector(".creator-note");
+      if (note) note.hidden = creator;
     }
     if (event.target.name === "avatar") {
       const file = event.target.files?.[0];
@@ -1168,6 +1549,11 @@
       preview.hidden = !file;
       if (file) preview.querySelector("img").src = URL.createObjectURL(file);
     }
+  });
+
+  ui.content.addEventListener("input", (event) => {
+    const counter = ui.content.querySelector(`[data-count-for="${event.target.name}"]`);
+    if (counter) counter.textContent = `${event.target.value.length} / ${event.target.maxLength}`;
   });
 
   // ---------- start ----------
@@ -1189,5 +1575,6 @@
   account.signedIn = signedIn;
   account.api = api;
   account.updateMenuButton = updateMenuButton;
+  account.openAdminProfile = openAdminProfile;
   window.VibeAccount = account;
 })();
