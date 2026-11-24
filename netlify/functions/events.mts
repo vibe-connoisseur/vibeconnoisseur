@@ -9,6 +9,7 @@ type SheetEvent = {
   postcode: string;
   region: string;
   city: string;
+  hub: string;
   ageRange: string;
   price: string;
   priceType: "paid" | "free" | "free_before" | "unknown";
@@ -150,6 +151,22 @@ const CITY_CENTRES: Record<string, [number, number]> = {
   cardiff: [51.4816, -3.1791], newcastle: [54.9783, -1.6178], leicester: [52.6369, -1.1398],
   brighton: [50.8225, -0.1372], coventry: [52.4068, -1.5197], reading: [51.4543, -0.9781],
 };
+
+// The three regions people pick from in the app. Each has its own tab in the
+// sheet (same columns as Event Tracker). Override with GOOGLE_SHEET_TABS,
+// e.g. "909209203:London,909209301:Manchester,909209302:Midlands".
+const DEFAULT_TABS = "909209203:London,909209301:Manchester,909209302:Midlands";
+const HUB_BY_AREA: Record<string, string> = {
+  M: "Manchester", BL: "Manchester", OL: "Manchester", SK: "Manchester", WN: "Manchester", WA: "Manchester",
+  B: "Midlands", CV: "Midlands", WV: "Midlands", DY: "Midlands", WS: "Midlands", NG: "Midlands",
+  LE: "Midlands", DE: "Midlands", NN: "Midlands", ST: "Midlands", TF: "Midlands", WR: "Midlands", LN: "Midlands",
+};
+
+function hubFromPostcode(postcode: string): string {
+  const area = postcode.match(/^[A-Z]+/)?.[0] || "";
+  if (HUB_BY_AREA[area]) return HUB_BY_AREA[area];
+  return CITY_BY_AREA[area] === "London" ? "London" : "";
+}
 
 function cityFromPostcode(postcode: string): string {
   return CITY_BY_AREA[postcode.match(/^[A-Z]+/)?.[0] || ""] || "";
@@ -370,22 +387,41 @@ export default async (request: Request) => {
 
   const debug = new URL(request.url).searchParams.has("debug");
   const sheetUrl = Netlify.env.get("GOOGLE_SHEET_CSV_URL") || DEFAULT_SHEET_URL;
+  const tabs = (Netlify.env.get("GOOGLE_SHEET_TABS") || DEFAULT_TABS).split(",")
+    .map((entry) => entry.trim().split(":"))
+    .filter(([gid, hub]) => /^\d+$/.test(gid || "") && hub)
+    .map(([gid, hub]) => ({ gid, hub: hub.trim(), url: sheetUrl.replace(/gid=\d+/, `gid=${gid}`) }));
 
   try {
-    const response = await fetch(sheetUrl, { headers: { Accept: "text/csv" } });
-    if (!response.ok) throw new Error(`Google Sheets returned ${response.status}`);
-
-    const rows = parseCsv(await response.text());
-    if (rows.length < 2) return Response.json({ events: [], updatedAt: new Date().toISOString() });
-
-    const headers = rows[0].map(normalizeHeader);
-    const flyerKey = headers.find((header) => header.includes("flyer")) || "flyer_image_url";
-
-    // row = the row number as shown in Google Sheets (row 1 is the header).
-    const allRecords = rows.slice(1).map((values, position) => ({
-      row: position + 2,
-      record: Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])) as Record<string, string>,
+    // Read every region's tab at once. London (the first tab) must load; a
+    // region tab that isn't published yet is skipped and logged.
+    const loaded = await Promise.all(tabs.map(async (tab, index) => {
+      try {
+        const response = await fetch(tab.url, { headers: { Accept: "text/csv" } });
+        const text = await response.text();
+        if (!response.ok || /^\s*<(!doctype|html)/i.test(text)) throw new Error(`Google Sheets returned ${response.status} (is the ${tab.hub} tab published?)`);
+        return { tab, rows: parseCsv(text) };
+      } catch (error) {
+        if (index === 0) throw error;
+        console.error("Region tab skipped", tab.hub, (error as Error).message);
+        return { tab, rows: [] as string[][] };
+      }
     }));
+
+    let flyerKey = "flyer_image_url";
+    // row = the row number as shown in Google Sheets (row 1 is the header).
+    const allRecords = loaded.flatMap(({ tab, rows }) => {
+      if (rows.length < 2) return [];
+      const headers = rows[0].map(normalizeHeader);
+      const flyerHeader = headers.find((header) => header.includes("flyer"));
+      return rows.slice(1).map((values, position) => {
+        const record = Object.fromEntries(headers.map((header, column) => [header, values[column] || ""])) as Record<string, string>;
+        // Every tab's flyer column is read the same way, whatever its exact header.
+        if (flyerHeader && flyerHeader !== flyerKey) record[flyerKey] = record[flyerHeader];
+        record.__hub = tab.hub;
+        return { row: position + 2, record, tab: tab.hub };
+      });
+    });
 
     const skipped: SkippedRow[] = [];
 
@@ -394,7 +430,7 @@ export default async (request: Request) => {
     // with Approved = Yes.
     const records = allRecords.filter(({ row, record }) => {
       if (isYes(record.approved)) return true;
-      skipped.push({ row, title: record.title || "(no title)", reason: "Approved is not Yes" });
+      skipped.push({ row, title: `${record.title || "(no title)"}${record.__hub && record.__hub !== "London" ? ` [${record.__hub} tab]` : ""}`, reason: "Approved is not Yes" });
       return false;
     });
 
@@ -441,8 +477,9 @@ export default async (request: Request) => {
         position = CITY_CENTRES[namedCity];
         isApproximate = true;
       }
+      const hub = record.__hub || hubFromPostcode(postcode) || (namedCity ? HUB_BY_AREA[Object.entries(CITY_BY_AREA).find(([, name]) => name.toLowerCase() === namedCity)?.[0] || ""] || "" : "") || "London";
       const city = titleCase(record.city || "") || cityFromPostcode(postcode) || (namedCity ? titleCase(namedCity) : "")
-        || (textFallback ? "London" : "") || (position ? "UK" : "");
+        || (textFallback && hub === "London" ? "London" : "") || (position ? (hub === "London" ? "London" : "UK") : "");
       if (city === "London") {
         if (!region && textFallback) region = regionFromPostcode(textFallback.postcode);
         if (!region && position) region = "London";
@@ -472,6 +509,7 @@ export default async (request: Request) => {
         postcode,
         region,
         city,
+        hub,
         ageRange: record.age_range || "All ages",
         ...readPrice(record.tickets_from || "", record.__price_type || "", record.__free_before || ""),
         startTime: (record.start_time || record.time || record.doors || "").trim().slice(0, 20),

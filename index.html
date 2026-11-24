@@ -8,7 +8,7 @@
     <title>Where's The Vibe | London Event Map</title>
     <link rel="preload" href="assets/fonts/norwester.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <link rel="stylesheet" href="styles.css?v=17" />
+    <link rel="stylesheet" href="styles.css?v=18" />
   </head>
   <body>
     <div class="noise" aria-hidden="true"></div>
@@ -28,6 +28,10 @@
           <span>Reading the guest list</span>
         </div>
         <div class="header-actions">
+          <button class="hub-button" id="hubButton" type="button" aria-label="Change region">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z" /><circle cx="12" cy="9.5" r="2.5" /></svg>
+            <span>London</span>
+          </button>
           <a class="header-search" href="#search" data-tab="search" aria-label="Search events">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>
           </a>
@@ -199,9 +203,22 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="assets/vendor/supabase.js?v=2.119.0" defer></script>
     <script src="native.js?v=6" defer></script>
-    <script src="app.js?v=17" defer></script>
+    <script src="app.js?v=18" defer></script>
     <script src="account.js?v=11" defer></script>
-    <script src="social.js?v=7" defer></script>
+    <script src="social.js?v=8" defer></script>
     <script src="views.js?v=7" defer></script>
-  </body>
+      <div class="hub-modal" id="hubModal" role="dialog" aria-modal="true" aria-labelledby="hubTitle" hidden>
+      <div class="hub-panel">
+        <button class="hub-close" id="hubClose" type="button" aria-label="Close" hidden>&times;</button>
+        <p class="hub-kicker">Where's The Vibe</p>
+        <h2 id="hubTitle">Where are you based?</h2>
+        <p class="hub-lead">See what's on near you. Change it any time from the pin at the top.</p>
+        <div class="hub-options">
+          <button type="button" data-hub="London"><strong>London</strong><small>All of London</small><em data-hub-count></em></button>
+          <button type="button" data-hub="Manchester"><strong>Manchester</strong><small>Manchester and Greater Manchester</small><em data-hub-count></em></button>
+          <button type="button" data-hub="Midlands"><strong>Midlands</strong><small>Birmingham, Coventry, Nottingham, Leicester, Northampton and more</small><em data-hub-count></em></button>
+        </div>
+      </div>
+    </div>
+</body>
 </html>

@@ -18,7 +18,10 @@ const TYPE_COLORS = {
 const EXTRA_COLORS = ["#f7d794", "#778beb", "#f8a5c2", "#63cdda", "#cf6a87", "#e15f41", "#c8d6e5", "#ffd32a"];
 
 const state = {
+  // Every event from the feed, and the ones in the region the person picked.
+  allEvents: [],
   events: [],
+  hub: "",
   markers: new Map(),
   date: "all",
   types: new Set(),
@@ -43,6 +46,13 @@ const native = window.VibeNative || {
 };
 const SAVED_KEY = "wtv-saved-events";
 const CACHE_KEY = "wtv-events-cache";
+const HUB_KEY = "wtv-region";
+// The regions people choose between. Each has its own tab in the sheet.
+const HUBS = {
+  London: { center: [51.485, -0.085], zoom: 11, blurb: "All of London" },
+  Manchester: { center: [53.4808, -2.2426], zoom: 12, blurb: "Manchester and Greater Manchester" },
+  Midlands: { center: [52.55, -1.5], zoom: 9, blurb: "Birmingham, Coventry, Nottingham, Leicester, Northampton and more" },
+};
 
 const elements = {
   ageFilter: document.querySelector("#ageFilter"),
@@ -231,7 +241,7 @@ function formatDistance(km) {
 
 function savedEvents() {
   const today = todayString();
-  const live = new Map(state.events.map((event) => [eventKey(event), event]));
+  const live = new Map(state.allEvents.map((event) => [eventKey(event), event]));
   return [...state.saved.entries()]
     .map(([key, stored]) => live.get(key) || stored)
     .filter((event) => event.date >= today)
@@ -557,7 +567,7 @@ function render(keepView = false) {
 }
 
 function findEvent(id) {
-  return state.events.find((event) => event.id === id) || savedEvents().find((event) => event.id === id);
+  return state.allEvents.find((event) => event.id === id) || savedEvents().find((event) => event.id === id);
 }
 
 function updateToolButtons() {
@@ -972,24 +982,18 @@ async function loadEvents() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Unable to load events");
 
-    state.events = Array.isArray(payload.events) ? payload.events : [];
+    state.allEvents = Array.isArray(payload.events) ? payload.events : [];
     state.offline = false;
-    native.storage.set(CACHE_KEY, { events: state.events, at: Date.now() });
-    populateFilters();
-    renderFlyerShowcases();
-    render();
-    hooks.eventsLoaded();
-    elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live on the map`;
+    native.storage.set(CACHE_KEY, { events: state.allEvents, at: Date.now() });
+    applyHub();
+    elements.syncStatus.lastElementChild.textContent = `${state.events.length} events live in ${state.hub || "London"}`;
   } catch (error) {
     const cached = await native.storage.get(CACHE_KEY);
-    if (cached?.events?.length && !state.events.length) {
+    if (cached?.events?.length && !state.allEvents.length) {
       const today = todayString();
-      state.events = cached.events.filter((event) => event.date >= today);
+      state.allEvents = cached.events.filter((event) => event.date >= today);
       state.offline = true;
-      populateFilters();
-      renderFlyerShowcases();
-      render();
-      hooks.eventsLoaded();
+      applyHub();
       setStatus("Offline. Showing your last update", true);
     } else {
       setStatus(error.message === "Failed to fetch" ? "You're offline. Saved events still work" : (error.message || "The event feed is offline"), true);
@@ -1002,9 +1006,11 @@ async function loadEvents() {
 }
 
 function openEventFromLink(key) {
-  const event = state.events.find((item) => eventKey(item) === key) || state.saved.get(key);
+  const event = state.allEvents.find((item) => eventKey(item) === key) || state.saved.get(key);
   if (!event) return;
-  if (!filteredEvents().some((item) => item.id === event.id)) {
+  // An event in another region just opens on its own; the region stays as chosen.
+  const inRegion = (event.hub || "London") === (state.hub || "London");
+  if (inRegion && !filteredEvents().some((item) => item.id === event.id)) {
     resetFilters();
     if (!state.events.some((item) => item.id === event.id)) {
       state.savedOnly = true;
@@ -1142,7 +1148,84 @@ window.VibeApp = {
   ready: null,
 };
 
+// ---------- Region (London, Manchester, Midlands) ----------
+
+const hubElements = {
+  modal: document.querySelector("#hubModal"),
+  button: document.querySelector("#hubButton"),
+  close: document.querySelector("#hubClose"),
+};
+
+// Shows only the chosen region's events everywhere: feeds, flyer rails,
+// filters and the map.
+function applyHub() {
+  const hub = state.hub || "London";
+  state.events = state.allEvents.filter((event) => (event.hub || "London") === hub);
+  hubElements.button.querySelector("span").textContent = hub;
+  hubElements.button.setAttribute("aria-label", `Region: ${hub}. Change region`);
+  populateFilters();
+  renderFlyerShowcases();
+  render();
+  if (!state.events.length) map.setView(HUBS[hub].center, HUBS[hub].zoom);
+  hooks.eventsLoaded();
+}
+
+function openHubPicker(firstTime = false) {
+  const counts = {};
+  state.allEvents.forEach((event) => { counts[event.hub || "London"] = (counts[event.hub || "London"] || 0) + 1; });
+  hubElements.modal.querySelectorAll("[data-hub]").forEach((button) => {
+    const hub = button.dataset.hub;
+    button.classList.toggle("is-active", hub === state.hub);
+    button.setAttribute("aria-pressed", String(hub === state.hub));
+    const count = button.querySelector("[data-hub-count]");
+    count.textContent = counts[hub] ? `${counts[hub]} event${counts[hub] === 1 ? "" : "s"}` : "";
+  });
+  hubElements.close.hidden = firstTime;
+  hubElements.modal.hidden = false;
+  document.body.classList.add("hub-open");
+  requestAnimationFrame(() => (hubElements.modal.querySelector(".is-active") || hubElements.modal.querySelector("[data-hub]")).focus());
+}
+
+function closeHubPicker() {
+  if (!state.hub) return;
+  hubElements.modal.hidden = true;
+  document.body.classList.remove("hub-open");
+  hubElements.button.focus({ preventScroll: true });
+}
+
+function chooseHub(hub) {
+  if (!HUBS[hub]) return;
+  const changed = hub !== state.hub;
+  state.hub = hub;
+  native.storage.set(HUB_KEY, hub);
+  native.haptic?.();
+  closeHubPicker();
+  if (!changed) return;
+  state.cities.clear();
+  state.regions.clear();
+  state.nearMe = false;
+  closeEventDetail?.();
+  afterPaint(() => {
+    applyHub();
+    if (state.events.length) setStatus(`${state.events.length} events live in ${hub}`);
+    showToast(`Showing events in ${hub}`);
+  });
+}
+
+hubElements.button.addEventListener("click", () => openHubPicker(false));
+hubElements.close.addEventListener("click", closeHubPicker);
+hubElements.modal.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-hub]");
+  if (option) return chooseHub(option.dataset.hub);
+  if (event.target === hubElements.modal) closeHubPicker();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !hubElements.modal.hidden) closeHubPicker();
+});
+
 async function start() {
+  const storedHub = await native.storage.get(HUB_KEY);
+  state.hub = HUBS[storedHub] ? storedHub : "";
   const stored = await native.storage.get(SAVED_KEY);
   if (Array.isArray(stored)) state.saved = new Map(stored);
   updateToolButtons();
@@ -1153,6 +1236,8 @@ async function start() {
     if (/^friend-/.test(data?.kind || "")) location.hash = "#following";
   });
   await loadEvents();
+  // First visit: ask where they're based.
+  if (!state.hub) openHubPicker(true);
   document.dispatchEvent(new CustomEvent("vibe:events-loaded"));
   const linked = new URLSearchParams(location.search).get("event");
   if (linked) openEventFromLink(linked);
