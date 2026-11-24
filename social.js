@@ -846,7 +846,7 @@
         .order("created_at", { ascending: false })
         .limit(60);
       const today = app.todayString();
-      const live = new Map(app.state.events.map((event) => [app.eventKey(event), event]));
+      const live = new Map((app.state.allEvents || app.state.events).map((event) => [app.eventKey(event), event]));
       friends.activity = (saves || [])
         .map((row) => ({ ...row, event: live.get(row.event_key) || row.event, person: friends.people.get(row.user_id) }))
         .filter((row) => row.event?.date >= today && row.person);
